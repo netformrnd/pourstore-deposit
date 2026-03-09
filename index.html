@@ -3443,6 +3443,8 @@
             d.paymentMethod = '';
             d.cardCompany = '';
             d.actionRequired = '';
+            // ★ 처리완료(카드사/자사몰) 자동설정된 상태도 되돌림
+            if (d.status === '완료') d.status = '확인중';
         }
 
         // 카테고리별 추가 필드
@@ -3564,6 +3566,9 @@
                 d.status = '발행요청';
             } else if (d.actionRequired === '현금영수증 발급필요' && d.status !== '완료') {
                 d.status = '발행요청';
+            } else if (d.status === '완료') {
+                // ★ 카드사/자사몰에서 다른 채널로 변경 시 완료 상태 되돌림
+                d.status = '확인중';
             }
 
             if (!d.attachments) d.attachments = {};
@@ -5439,12 +5444,20 @@
 
     // ==================== CHANNEL / PAYMENT METHOD ====================
     function selectChannel(ch, restore) {
+        const pmRow = document.getElementById('paymentMethodRow');
+        const pmBtns = document.getElementById('paymentMethodButtons');
+
+        // ★ 이미 선택된 채널 클릭 시 토글(선택 해제) 지원
+        const currentActive = document.querySelector('#channelButtons button.active');
+        if (!restore && currentActive && currentActive.textContent.includes(ch)) {
+            resetChannelSelection();
+            return;
+        }
+
         document.querySelectorAll('#channelButtons button').forEach(b => {
             b.classList.remove('active');
             if (b.textContent.includes(ch)) b.classList.add('active');
         });
-        const pmRow = document.getElementById('paymentMethodRow');
-        const pmBtns = document.getElementById('paymentMethodButtons');
         // ★ 초기화 버튼 표시
         document.getElementById('channelResetBtn').style.display = '';
 
@@ -5552,10 +5565,10 @@
                 const curPartnerId = currentDep ? (currentDep.partnerId || currentDep.suggestedPartnerId) : null;
                 const curDepName = currentDep ? currentDep.depositorName : '';
 
-                // ★ 미입금 선발행 건 (발행완료 상태도 포함)
+                // ★ 미입금 선발행 건 (발행완료 상태도 포함, includes로 유연하게 매칭)
                 let unpaidPre = deposits.filter(d => d.isPreIssue && !d.date &&
-                    ((pm === '계산서' && (d.actionRequired === '세금계산서 발행필요' || d.actionRequired === '세금계산서 발행완료')) ||
-                     (pm === '현금' && (d.actionRequired === '현금영수증 발급필요' || d.actionRequired === '현금영수증 발급완료'))));
+                    ((pm === '계산서' && d.actionRequired && d.actionRequired.includes('세금계산서')) ||
+                     (pm === '현금' && d.actionRequired && d.actionRequired.includes('현금영수증'))));
 
                 // ★ 동일 거래처만 필터링 (partnerId 매칭 또는 이름 매칭)
                 if (curPartnerId || curDepName) {
