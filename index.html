@@ -1231,11 +1231,11 @@
             if (d.actionRequired === '처리완료(온라인)') d.actionRequired = '처리완료(자사몰)';
             // ★ autoCategory 초기화
             if (d.autoCategory === undefined) d.autoCategory = null;
-            // ★ 기존 완료건 자동분류 적용
-            if (!d.autoCategory && d.actionRequired === '처리완료(자사몰)') {
+            // ★ 기존 완료건 자동분류 적용 (입금처명이 실제 온라인/카드사인 경우만)
+            if (!d.autoCategory && d.actionRequired === '처리완료(자사몰)' && getAutoCategory(d.depositorName) === 'online') {
                 d.autoCategory = 'online';
             }
-            if (!d.autoCategory && d.actionRequired === '처리완료(카드사)') {
+            if (!d.autoCategory && d.actionRequired === '처리완료(카드사)' && getAutoCategory(d.depositorName) === 'card') {
                 d.autoCategory = 'card';
             }
             // ★ 미분류 건 중 키워드 매칭으로 자동분류
