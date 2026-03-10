@@ -414,6 +414,10 @@
                 </div>
                 <div class="form-row" style="margin-bottom:10px">
                     <div class="form-group" style="margin-bottom:0">
+                        <label style="font-size:13px">발행일자 <span class="required">*</span></label>
+                        <input type="date" id="taxPiIssueDate" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;width:100%;font-family:inherit">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
                         <label style="font-size:13px">입금예정일</label>
                         <input type="date" id="taxPiExpectedDate" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;width:100%;font-family:inherit">
                     </div>
@@ -431,11 +435,14 @@
                 </div>
             </div>
 
-            <!-- 상태 필터 -->
-            <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
-                <button class="btn btn-sm taxStatusFilter active" onclick="setTaxStatusFilter('all')" style="font-size:12px;padding:5px 12px">전체</button>
-                <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('req')" style="font-size:12px;padding:5px 12px">발행요청</button>
-                <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('done')" style="font-size:12px;padding:5px 12px">발행완료</button>
+            <!-- 상태 필터 + 검색 -->
+            <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap;justify-content:space-between">
+                <div style="display:flex;gap:6px;align-items:center">
+                    <button class="btn btn-sm taxStatusFilter active" onclick="setTaxStatusFilter('all')" style="font-size:12px;padding:5px 12px">전체</button>
+                    <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('req')" style="font-size:12px;padding:5px 12px">발행요청</button>
+                    <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('done')" style="font-size:12px;padding:5px 12px">발행완료</button>
+                </div>
+                <input type="text" id="taxInvoiceSearch" class="search-box" placeholder="입금처 · 거래처 검색..." oninput="renderTaxInvoiceList()" style="width:200px;padding:5px 10px;font-size:12px">
             </div>
 
             <div class="table-wrap">
@@ -2171,7 +2178,10 @@
             const hiddenId = type === 'tax' ? 'taxPiPartner' : 'cashPiPartner';
             document.getElementById(searchId).value = '';
             document.getElementById(hiddenId).value = '';
-            // 날짜 기본값
+            // 발행일자 기본값: 당일
+            const issueDateEl = document.getElementById(type + 'PiIssueDate');
+            if (issueDateEl) issueDateEl.value = new Date().toISOString().split('T')[0];
+            // 입금예정일 초기화
             const dateId = type === 'tax' ? 'taxPiExpectedDate' : 'cashPiExpectedDate';
             document.getElementById(dateId).value = '';
             // 금액/비고 초기화
@@ -2301,6 +2311,8 @@
         const partnerId = parseInt(document.getElementById(prefix + 'PiPartner').value);
         const amountStr = document.getElementById(prefix + 'PiAmount').value.replace(/,/g, '');
         const amount = parseFloat(amountStr);
+        const issueDateEl = document.getElementById(prefix + 'PiIssueDate');
+        const issueDate = issueDateEl ? issueDateEl.value : new Date().toISOString().split('T')[0];
         const expectedDate = document.getElementById(prefix + 'PiExpectedDate').value;
         const note = document.getElementById(prefix + 'PiNote').value.trim();
 
@@ -2310,6 +2322,7 @@
 
         if (!partnerId) { showToast('거래처를 선택해주세요.', 'error'); return; }
         if (!amount || isNaN(amount) || amount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
+        if (!issueDate) { showToast('발행일자를 선택해주세요.', 'error'); return; }
         if (type === 'tax' && !piCategory) { showToast('구분(위탁/포어스토어)을 선택해주세요.', 'error'); return; }
         if (type === 'tax' && piCategory === '포어' && !piChannel) { showToast('채널(자사몰/직접발주)을 선택해주세요.', 'error'); return; }
 
@@ -2333,7 +2346,7 @@
             note: note,
             isPreIssue: true,
             expectedDate: expectedDate,
-            requestDate: new Date().toISOString().split('T')[0],
+            requestDate: issueDate,
             createdAt: new Date().toISOString()
         };
 
@@ -2971,6 +2984,16 @@
         // 상태 필터 적용
         if (taxStatusFilter === 'req') items = items.filter(d => d.actionRequired !== '세금계산서 발행완료');
         if (taxStatusFilter === 'done') items = items.filter(d => d.actionRequired === '세금계산서 발행완료');
+        // 검색 필터 적용
+        const taxSearch = (document.getElementById('taxInvoiceSearch')?.value || '').trim().toLowerCase();
+        if (taxSearch) {
+            items = items.filter(d => {
+                const partnerName = (d.partnerId ? (getPartnerById(d.partnerId)?.name || '') : '').toLowerCase();
+                const bizNo = (d.partnerId ? (getPartnerById(d.partnerId)?.bizNo || '') : '').toLowerCase();
+                const depositorName = (d.depositorName || '').toLowerCase();
+                return depositorName.includes(taxSearch) || partnerName.includes(taxSearch) || bizNo.includes(taxSearch);
+            });
+        }
         // 발행일 기준 최신순 정렬 (발행일 없으면 요청일, 그것도 없으면 뒤로)
         items.sort((a, b) => {
             const da = a.issueDate || a.requestDate || '0';
