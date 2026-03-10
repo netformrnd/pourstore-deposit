@@ -5661,11 +5661,10 @@
         if (channel === '자사몰') {
             return '처리완료(자사몰)';
         }
-        if (channel === '직접발주') {
-            if (paymentMethod === '계산서') return '세금계산서 발행필요';
-            if (paymentMethod === '현금') return '현금영수증 발급필요';
-            if (paymentMethod === '카드') return '카드입금확인필요' + (cardCompany ? `(${cardCompany})` : '');
-        }
+        // ★ 채널(직접발주) 미지정이더라도 결제방법이 있으면 처리사항 결정
+        if (paymentMethod === '계산서') return '세금계산서 발행필요';
+        if (paymentMethod === '현금') return '현금영수증 발급필요';
+        if (paymentMethod === '카드') return '카드입금확인필요' + (cardCompany ? `(${cardCompany})` : '');
         return '';
     }
 
@@ -5905,7 +5904,23 @@
         d.matchConfirmed = true;
         d.suggestedPartnerId = null;
         d.suggestedScore = null;
-        saveToStorage();
+
+        // ★ 거래처 확정 후 처리사항/상태 자동 재계산
+        if (d.category && d.category !== '미지정') {
+            const newAction = computeActionRequired(d.category, d.channel, d.paymentMethod, d.cardCompany);
+            if (newAction) {
+                d.actionRequired = newAction;
+                if (newAction.includes('처리완료') || newAction.includes('카드입금확인')) {
+                    d.status = '완료';
+                } else if (newAction === '세금계산서 발행필요' && d.status !== '완료') {
+                    d.status = '발행요청';
+                } else if (newAction === '현금영수증 발급필요' && d.status !== '완료') {
+                    d.status = '발행요청';
+                }
+            }
+        }
+
+        saveToStorage(true);
         renderAll();
     }
 
@@ -6053,10 +6068,26 @@
         d.matchConfirmed = true;
         d.suggestedPartnerId = null;
         d.suggestedScore = null;
+
+        // ★ 거래처 매칭 후 처리사항/상태 자동 재계산
+        if (d.category && d.category !== '미지정') {
+            const newAction = computeActionRequired(d.category, d.channel, d.paymentMethod, d.cardCompany);
+            if (newAction) {
+                d.actionRequired = newAction;
+                if (newAction.includes('처리완료') || newAction.includes('카드입금확인')) {
+                    d.status = '완료';
+                } else if (newAction === '세금계산서 발행필요' && d.status !== '완료') {
+                    d.status = '발행요청';
+                } else if (newAction === '현금영수증 발급필요' && d.status !== '완료') {
+                    d.status = '발행요청';
+                }
+            }
+        }
+
         // 열린 피커 닫기
         const picker = document.getElementById('manualPartnerPicker-' + depositId);
         if (picker) picker.remove();
-        saveToStorage();
+        saveToStorage(true);
         renderAll();
         const p = getPartnerById(partnerId);
         showToast(`[${p ? p.name : ''}] 거래처 수기 지정 완료`, 'success');
