@@ -3080,8 +3080,8 @@
                 issueDateDisplay = '<span class="text-muted">-</span>';
             }
             const actions = isComplete
-                ? `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button></div>`
-                : `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'tax')" style="padding:2px 8px">발행완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'tax')" style="padding:2px 8px">해제</button></div>`;
+                ? `<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button></div>`
+                : `<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'tax')" style="padding:2px 8px">발행완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'tax')" style="padding:2px 8px">해제</button></div>`;
             const deleteCell = `<span onclick="event.stopPropagation();deleteTaxInvoiceItem(${d.id},'tax',${isPreIssue})" style="cursor:pointer;color:#CBD5E1;font-size:1rem" title="삭제">✕</span>`;
             return `<tr${isPreIssue && !isComplete ? ' style="background:rgba(22,163,74,.02)"' : ''}>
                 <td class="text-sm">${issueDateDisplay}</td>
