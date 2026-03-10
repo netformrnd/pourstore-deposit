@@ -2137,6 +2137,19 @@
         showToast('발행요청이 해제되었습니다.', 'info');
     }
 
+    // 선발행 건 삭제
+    function deletePreIssue(id, type) {
+        const d = deposits.find(r => r.id === id);
+        if (!d || !d.isPreIssue) return;
+        if (!confirm(`"${d.depositorName}" ${formatNumber(d.amount)}원 선발행 건을 삭제하시겠습니까?`)) return;
+        deposits = deposits.filter(r => r.id !== id);
+        saveToStorage();
+        renderAll();
+        if (type === 'tax') renderTaxInvoiceList();
+        else renderCashReceiptList();
+        showToast('선발행 건이 삭제되었습니다.', 'info');
+    }
+
     // 거래처 정보 HTML 생성 헬퍼
     function buildPartnerInfoHTML(p) {
         if (!p) return '<span class="text-muted">거래처 미지정</span>';
@@ -3059,9 +3072,10 @@
             } else {
                 issueDateDisplay = '<span class="text-muted">-</span>';
             }
+            const deleteBtn = isPreIssue ? `<button class="btn-xs btn-outline" onclick="deletePreIssue(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--red);border-color:var(--red)">삭제</button>` : '';
             const actions = isComplete
-                ? `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button></div>`
-                : `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'tax')" style="padding:2px 8px">발행완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'tax')" style="padding:2px 8px">해제</button></div>`;
+                ? `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button>${deleteBtn}</div>`
+                : `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'tax')" style="padding:2px 8px">발행완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'tax')" style="padding:2px 8px">해제</button>${deleteBtn}</div>`;
             return `<tr${isPreIssue && !isComplete ? ' style="background:rgba(22,163,74,.02)"' : ''}>
                 <td class="text-sm">${issueDateDisplay}</td>
                 <td class="text-sm">${dateDisplay}</td>
