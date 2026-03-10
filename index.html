@@ -435,14 +435,17 @@
                 </div>
             </div>
 
-            <!-- 상태 필터 + 검색 -->
-            <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap;justify-content:space-between">
-                <div style="display:flex;gap:6px;align-items:center">
-                    <button class="btn btn-sm taxStatusFilter active" onclick="setTaxStatusFilter('all')" style="font-size:12px;padding:5px 12px">전체</button>
-                    <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('req')" style="font-size:12px;padding:5px 12px">발행요청</button>
-                    <button class="btn btn-sm btn-outline taxStatusFilter" onclick="setTaxStatusFilter('done')" style="font-size:12px;padding:5px 12px">발행완료</button>
-                </div>
+            <!-- 검색 + 필터 -->
+            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;justify-content:flex-end">
                 <input type="text" id="taxInvoiceSearch" class="search-box" placeholder="입금처 · 거래처 검색..." oninput="renderTaxInvoiceList()" style="width:200px;padding:5px 10px;font-size:12px">
+                <select id="taxStatusSelect" class="filter-select" onchange="renderTaxInvoiceList()" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
+                    <option value="all">전체</option>
+                    <option value="req">발행요청</option>
+                    <option value="done">발행완료</option>
+                    <option value="preissue">선발행</option>
+                    <option value="unpaid">미입금</option>
+                    <option value="partial">부분입금</option>
+                </select>
             </div>
 
             <div class="table-wrap">
@@ -2967,23 +2970,16 @@
     }
 
     // 계산서 내역 렌더링 (거래처 상세정보 포함)
-    let taxStatusFilter = 'all';
-    function setTaxStatusFilter(f) {
-        taxStatusFilter = f;
-        document.querySelectorAll('.taxStatusFilter').forEach((btn, i) => {
-            const map = ['all', 'req', 'done'];
-            if (map[i] === f) { btn.classList.add('active'); btn.classList.remove('btn-outline'); }
-            else { btn.classList.remove('active'); btn.classList.add('btn-outline'); }
-        });
-        renderTaxInvoiceList();
-    }
-
     function renderTaxInvoiceList() {
         renderTaxBalanceSummary();
         let items = deposits.filter(d => d.actionRequired === '세금계산서 발행필요' || d.actionRequired === '세금계산서 발행완료');
         // 상태 필터 적용
+        const taxStatusFilter = document.getElementById('taxStatusSelect')?.value || 'all';
         if (taxStatusFilter === 'req') items = items.filter(d => d.actionRequired !== '세금계산서 발행완료');
         if (taxStatusFilter === 'done') items = items.filter(d => d.actionRequired === '세금계산서 발행완료');
+        if (taxStatusFilter === 'preissue') items = items.filter(d => d.isPreIssue);
+        if (taxStatusFilter === 'unpaid') items = items.filter(d => d.isPreIssue && !d.date && !(d.partialPayments && d.partialPayments.length > 0));
+        if (taxStatusFilter === 'partial') items = items.filter(d => d.isPreIssue && d.partialPayments && d.partialPayments.length > 0 && d.partialPayments.reduce((s,x) => s + x.amount, 0) < d.amount);
         // 검색 필터 적용
         const taxSearch = (document.getElementById('taxInvoiceSearch')?.value || '').trim().toLowerCase();
         if (taxSearch) {
