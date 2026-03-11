@@ -299,8 +299,7 @@
                 </div>
             </div>
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:10px">
-                <button class="auto-cat-toggle" id="autoCatOnlineBtn" onclick="toggleAutoCategoryList('online')" style="display:none">온라인 입금</button>
-                <button class="auto-cat-toggle" id="autoCatCardBtn" onclick="toggleAutoCategoryList('card')">카드사 입금</button>
+                <button class="auto-cat-toggle" id="autoCatMergedBtn" onclick="toggleMergedAutoCategoryList()">쇼핑몰 매출입금</button>
                 <button class="btn btn-outline" onclick="downloadExcel()" style="border-color:var(--accent);color:var(--accent)">엑셀 다운로드</button>
             </div>
 
@@ -352,6 +351,7 @@
                 <!-- 자동분류 입금 목록 (펼침 시 표시) -->
                 <div id="autoCatOnlineList" style="display:none;margin-top:10px"></div>
                 <div id="autoCatCardList" style="display:none;margin-top:10px"></div>
+                <div id="autoCatMergedList" style="display:none;margin-top:10px"></div>
             </div>
 
         </div>
@@ -365,6 +365,11 @@
 
             <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
                 <button class="btn btn-sm" onclick="togglePreIssueForm('tax')" style="border-color:var(--navy);color:var(--navy)">+ 선발행 요청</button>
+                <div style="display:flex;gap:4px;margin-left:8px">
+                    <button class="btn btn-sm taxCatFilter active" onclick="setTaxCatFilter('all')" style="font-size:12px;padding:4px 12px">전체</button>
+                    <button class="btn btn-sm btn-outline taxCatFilter" onclick="setTaxCatFilter('포어')" style="font-size:12px;padding:4px 12px">포어</button>
+                    <button class="btn btn-sm btn-outline taxCatFilter" onclick="setTaxCatFilter('위탁')" style="font-size:12px;padding:4px 12px">위탁</button>
+                </div>
             </div>
 
             <!-- 선발행 요청 폼 -->
@@ -2996,10 +3001,25 @@
         row.style.display = 'table-row';
     }
 
+    // 계산서 포어/위탁 구분 필터
+    let taxCatFilter = 'all';
+    function setTaxCatFilter(f) {
+        taxCatFilter = f;
+        document.querySelectorAll('.taxCatFilter').forEach((btn, i) => {
+            const map = ['all', '포어', '위탁'];
+            if (map[i] === f) { btn.classList.add('active'); btn.classList.remove('btn-outline'); }
+            else { btn.classList.remove('active'); btn.classList.add('btn-outline'); }
+        });
+        renderTaxInvoiceList();
+    }
+
     // 계산서 내역 렌더링 (거래처 상세정보 포함)
     function renderTaxInvoiceList() {
         renderTaxBalanceSummary();
         let items = deposits.filter(d => d.actionRequired === '세금계산서 발행필요' || d.actionRequired === '세금계산서 발행완료');
+        // 포어/위탁 구분 필터 적용
+        if (taxCatFilter === '포어') items = items.filter(d => d.category === '포어');
+        if (taxCatFilter === '위탁') items = items.filter(d => d.category === '위탁');
         // 상태 필터 적용
         const taxStatusFilter = document.getElementById('taxStatusSelect')?.value || 'all';
         if (taxStatusFilter === 'req') items = items.filter(d => d.actionRequired !== '세금계산서 발행완료');
@@ -3017,8 +3037,11 @@
                 return depositorName.includes(taxSearch) || partnerName.includes(taxSearch) || bizNo.includes(taxSearch);
             });
         }
-        // 발행일 기준 최신순 정렬 (발행일 없으면 요청일, 그것도 없으면 뒤로)
+        // 정렬: 발행요청을 위에, 발행완료를 아래에. 같은 그룹 내에서는 최신순
         items.sort((a, b) => {
+            const aComplete = a.actionRequired === '세금계산서 발행완료' ? 1 : 0;
+            const bComplete = b.actionRequired === '세금계산서 발행완료' ? 1 : 0;
+            if (aComplete !== bComplete) return aComplete - bComplete;
             const da = a.issueDate || a.requestDate || '0';
             const db = b.issueDate || b.requestDate || '0';
             return db.localeCompare(da);
@@ -3047,11 +3070,12 @@
             // 상태 배지: 선발행=초록, 후발행=네이비
             const badgeBgDone = isPreIssue ? 'background:#16a34a;color:#fff' : 'background:var(--navy);color:#fff';
             const badgeBgReq = isPreIssue ? 'background:rgba(22,163,74,.12);color:#16a34a;font-weight:700' : 'background:rgba(27,42,74,.15);color:var(--navy-dark);font-weight:700';
+            const issueTypeLabel = isPreIssue ? '선발행: 입금 전 발행 건' : '후발행: 입금 후 발행 건';
             let statusBadge;
             if (isComplete) {
-                statusBadge = `<span class="badge-pill" style="${badgeBgDone}">발행완료</span>`;
+                statusBadge = `<span class="badge-pill" style="${badgeBgDone};cursor:default" title="${issueTypeLabel}">발행완료</span>`;
             } else {
-                statusBadge = `<span class="badge-pill" style="${badgeBgReq}">발행요청</span>`;
+                statusBadge = `<span class="badge-pill" style="${badgeBgReq};cursor:default" title="${issueTypeLabel}">발행요청</span>`;
             }
             const isUnpaid = isPreIssue && !d.date;
             const pp = d.partialPayments || [];
@@ -5795,7 +5819,8 @@
     function toggleAutoCatMonth(type, monthKey) {
         const key = type + '_' + monthKey;
         autoCatExpandedMonths[key] = !autoCatExpandedMonths[key];
-        renderAutoCategoryList(type);
+        if (type === 'merged') renderMergedAutoCategoryList();
+        else renderAutoCategoryList(type);
     }
 
     function renderAutoCategoryList(type) {
@@ -5885,24 +5910,107 @@
         }
     }
 
+    // 통합 쇼핑몰 매출입금 토글
+    function toggleMergedAutoCategoryList() {
+        const el = document.getElementById('autoCatMergedList');
+        const btn = document.getElementById('autoCatMergedBtn');
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            if (btn) btn.classList.add('active');
+            renderMergedAutoCategoryList();
+        } else {
+            el.style.display = 'none';
+            if (btn) btn.classList.remove('active');
+        }
+    }
+
+    function renderMergedAutoCategoryList() {
+        const container = document.getElementById('autoCatMergedList');
+        if (!container) return;
+        const list = deposits.filter(d => d.autoCategory === 'online' || d.autoCategory === 'card');
+        const filtered = currentMonthFilter !== 'all'
+            ? list.filter(d => d.date && d.date.startsWith(currentMonthFilter))
+            : list;
+        filtered.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const totalAmt = filtered.reduce((s, d) => s + d.amount, 0);
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div style="padding:16px;color:var(--text-dim);font-size:13px;text-align:center;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg)">쇼핑몰 매출입금 내역이 없습니다</div>`;
+            return;
+        }
+
+        // 월별 그룹핑
+        const monthMap = {};
+        filtered.forEach(d => {
+            const mk = d.date ? d.date.substring(0, 7) : '미정';
+            if (!monthMap[mk]) monthMap[mk] = { items: [], total: 0 };
+            monthMap[mk].items.push(d);
+            monthMap[mk].total += d.amount;
+        });
+        const months = Object.keys(monthMap).sort().reverse();
+
+        let html = `<div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;max-width:700px">
+            <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:#f8f9fb">
+                <span style="font-size:13px;font-weight:700;color:var(--navy)">쇼핑몰 매출입금 ${filtered.length}건</span>
+                <span style="font-size:13px;font-weight:600;color:var(--navy)">합계 ${formatNumber(totalAmt)}원</span>
+            </div>`;
+
+        months.forEach(mk => {
+            const g = monthMap[mk];
+            const expandKey = 'merged_' + mk;
+            const isExpanded = !!autoCatExpandedMonths[expandKey];
+            const monthLabel = mk === '미정' ? '날짜 미정' : mk.replace('-', '년 ') + '월';
+            const arrow = isExpanded ? '▾' : '▸';
+
+            html += `<div onclick="toggleAutoCatMonth('merged','${mk}')" style="padding:9px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;border-bottom:1px solid #f0f0f0;background:${isExpanded ? '#f5f7fa' : '#fff'};transition:background .15s;user-select:none" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background='${isExpanded ? '#f5f7fa' : '#fff'}'">
+                <span style="font-size:13px;font-weight:600;color:var(--text)">${arrow} ${monthLabel} <span style="font-weight:400;color:var(--text-sub);font-size:12px">${g.items.length}건</span></span>
+                <span style="font-size:13px;font-weight:700;color:var(--navy)">${formatNumber(g.total)}원</span>
+            </div>`;
+
+            if (isExpanded) {
+                html += `<div style="border-bottom:1px solid #e2e5ea">
+                <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <colgroup><col style="width:80px"><col><col style="width:70px"><col style="width:110px"><col style="width:56px"></colgroup>
+                <thead><tr style="background:var(--navy)">
+                    <th style="padding:6px 16px;text-align:left;font-weight:600;font-size:12px;color:#fff">입금일</th>
+                    <th style="padding:6px 12px;text-align:left;font-weight:600;font-size:12px;color:#fff">입금처명</th>
+                    <th style="padding:6px 12px;text-align:center;font-weight:600;font-size:12px;color:#fff">구분</th>
+                    <th style="padding:6px 12px;text-align:right;font-weight:600;font-size:12px;color:#fff">금액</th>
+                    <th style="padding:6px 6px"></th>
+                </tr></thead>`;
+                g.items.forEach((d, i) => {
+                    const bg = i % 2 === 1 ? 'background:#fafbfc;' : '';
+                    const typeLabel = d.autoCategory === 'online' ? '<span style="color:#2563eb;font-size:11px">온라인</span>' : '<span style="color:#7c3aed;font-size:11px">카드사</span>';
+                    html += `<tr style="${bg}border-bottom:1px solid rgba(27,42,74,.04)">
+                        <td style="padding:5px 16px;font-size:12px;color:var(--text-sub)">${d.date ? d.date.substring(5) : '-'}</td>
+                        <td style="padding:5px 12px;font-size:13px;font-weight:500">${d.depositorName}</td>
+                        <td style="padding:5px 12px;text-align:center">${typeLabel}</td>
+                        <td style="padding:5px 12px;text-align:right;font-weight:600;color:var(--navy)">${formatNumber(d.amount)}원</td>
+                        <td style="padding:5px 6px;text-align:center"><span onclick="event.stopPropagation();moveToMainList(${d.id})" style="cursor:pointer;font-size:11px;color:#888;text-decoration:underline">되돌리기</span></td>
+                    </tr>`;
+                });
+                html += '</table></div>';
+            }
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
     function updateAutoCategorySummary() {
         const mf = currentMonthFilter;
-        const onlineList = deposits.filter(d => d.autoCategory === 'online');
-        const cardList = deposits.filter(d => d.autoCategory === 'card');
-        const onlineFiltered = mf !== 'all' ? onlineList.filter(d => d.date && d.date.startsWith(mf)) : onlineList;
-        const cardFiltered = mf !== 'all' ? cardList.filter(d => d.date && d.date.startsWith(mf)) : cardList;
+        const mergedList = deposits.filter(d => d.autoCategory === 'online' || d.autoCategory === 'card');
+        const mergedFiltered = mf !== 'all' ? mergedList.filter(d => d.date && d.date.startsWith(mf)) : mergedList;
 
-        const onlineBtn = document.getElementById('autoCatOnlineBtn');
-        const cardBtn = document.getElementById('autoCatCardBtn');
-        if (onlineBtn) {
-            onlineBtn.textContent = '온라인 입금';
-            onlineBtn.style.display = onlineFiltered.length > 0 ? '' : 'none';
-        }
-        if (cardBtn) {
-            cardBtn.textContent = '카드사 입금';
-            cardBtn.style.display = '';
+        const mergedBtn = document.getElementById('autoCatMergedBtn');
+        if (mergedBtn) {
+            mergedBtn.textContent = '쇼핑몰 매출입금';
+            mergedBtn.style.display = mergedFiltered.length > 0 ? '' : 'none';
         }
         // 펼쳐진 리스트가 있으면 새로고침
+        const mergedListEl = document.getElementById('autoCatMergedList');
+        if (mergedListEl && mergedListEl.style.display !== 'none') renderMergedAutoCategoryList();
+        // 기존 개별 리스트도 갱신 (호환용)
         const onlineListEl = document.getElementById('autoCatOnlineList');
         const cardListEl = document.getElementById('autoCatCardList');
         if (onlineListEl && onlineListEl.style.display !== 'none') renderAutoCategoryList('online');
