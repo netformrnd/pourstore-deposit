@@ -748,12 +748,10 @@
                 </div>
             </div>
 
-            <!-- 자동분류 이동 버튼 (미지정 상태에서만 표시) -->
+            <!-- 쇼핑몰 매출입금 이동 버튼 -->
             <div id="ddAutoMoveRow" style="display:none;padding:10px 0;border-top:1px solid var(--border);margin-top:8px">
-                <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">확인 불필요한 건은 자동분류로 이동:</div>
                 <div style="display:flex;gap:8px">
-                    <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="moveToAutoCategory(parseInt(document.getElementById('ddId').value),'online')">온라인 입금으로 이동</button>
-                    <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="moveToAutoCategory(parseInt(document.getElementById('ddId').value),'card')">카드사 입금으로 이동</button>
+                    <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="moveToShopSales(parseInt(document.getElementById('ddId').value))">쇼핑몰 매출입금으로 이동</button>
                 </div>
             </div>
 
@@ -3276,10 +3274,10 @@
         // 구분별 필드 표시
         showCategorySection(d.category || '', d);
 
-        // ★ 자동분류 이동 버튼 (미지정 상태에서만 표시)
+        // ★ 쇼핑몰 매출입금 이동 버튼 (autoCategory 미설정 건에서 표시)
         const autoMoveRow = document.getElementById('ddAutoMoveRow');
         if (autoMoveRow) {
-            autoMoveRow.style.display = (!d.category && !d.autoCategory) ? '' : 'none';
+            autoMoveRow.style.display = !d.autoCategory ? '' : 'none';
         }
 
         // ★ 선발행 간편 매칭 (일반 입금건 + 미입금 선발행건 있을 때 표시)
@@ -3374,9 +3372,8 @@
         const id = parseInt(document.getElementById('ddId').value);
         const d = deposits.find(r => r.id === id);
 
-        // 자동분류 이동 버튼 숨김 (카테고리 선택 시)
+        // 쇼핑몰 매출입금 이동 버튼은 항상 표시 유지
         const autoMoveRow = document.getElementById('ddAutoMoveRow');
-        if (autoMoveRow) autoMoveRow.style.display = cat ? 'none' : '';
 
         showCategorySection(cat, d);
     }
@@ -5773,6 +5770,15 @@
         return null;
     }
 
+    // ==================== 쇼핑몰 매출입금 이동 ====================
+    function moveToShopSales(depositId) {
+        const d = deposits.find(r => r.id === depositId);
+        if (!d) return;
+        // 카드사 키워드면 card, 아니면 online
+        const type = isCardCompanyName(d.depositorName) ? 'card' : 'online';
+        moveToAutoCategory(depositId, type);
+    }
+
     // ==================== 자동분류 이동/되돌리기 ====================
     function moveToAutoCategory(depositId, type) {
         const d = deposits.find(r => r.id === depositId);
@@ -5797,7 +5803,7 @@
         saveToStorage(true);
         renderAll();
         closeModal('depositDetailModal');
-        showToast(`"${d.depositorName}" → ${type === 'online' ? '온라인' : '카드사'} 입금으로 이동 (향후 자동분류)`, 'success');
+        showToast(`"${d.depositorName}" → 쇼핑몰 매출입금으로 이동 (향후 자동분류)`, 'success');
     }
 
     function moveToMainList(depositId) {
