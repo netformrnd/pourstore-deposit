@@ -413,22 +413,8 @@
                         <div id="taxPiPartnerDropdown" class="suggest-list" style="display:none;position:absolute;z-index:500;width:100%;max-height:180px"></div>
                     </div>
                     <div class="form-group" style="margin-bottom:0">
-                        <label style="font-size:13px">공급가액 <span class="required">*</span></label>
-                        <input type="text" id="taxPiAmount" placeholder="금액 입력" oninput="formatAmountInput(this);calcTaxPiTax()" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;width:100%;font-family:inherit">
-                    </div>
-                </div>
-                <div id="taxPiTaxRow" style="display:none;margin-bottom:10px;padding:10px 14px;background:#f8f9fb;border:1px solid var(--border);border-radius:var(--radius)">
-                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-                        <span style="color:var(--text-sub)">공급가액</span>
-                        <span id="taxPiSupplyDisplay" style="font-weight:600">0원</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-                        <span style="color:var(--text-sub)">세액 (10%)</span>
-                        <span id="taxPiTaxDisplay" style="font-weight:600">0원</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:14px;padding-top:6px;border-top:1px solid var(--border)">
-                        <span style="font-weight:700;color:var(--navy)">합계금액</span>
-                        <span id="taxPiTotalDisplay" style="font-weight:700;color:var(--navy)">0원</span>
+                        <label style="font-size:13px">합계금액 (세액포함) <span class="required">*</span></label>
+                        <input type="text" id="taxPiAmount" placeholder="금액 입력" oninput="formatAmountInput(this)" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;width:100%;font-family:inherit">
                     </div>
                 </div>
                 <div class="form-row" style="margin-bottom:10px">
@@ -2357,9 +2343,7 @@
         const prefix = type === 'tax' ? 'tax' : 'cash';
         const partnerId = parseInt(document.getElementById(prefix + 'PiPartner').value);
         const amountStr = document.getElementById(prefix + 'PiAmount').value.replace(/,/g, '');
-        const supplyAmount = parseFloat(amountStr);
-        const taxAmount = type === 'tax' ? Math.round(supplyAmount * 0.1) : 0;
-        const amount = supplyAmount + taxAmount;
+        const amount = parseFloat(amountStr);
         const issueDateEl = document.getElementById(prefix + 'PiIssueDate');
         const issueDate = issueDateEl ? issueDateEl.value : new Date().toISOString().split('T')[0];
         const expectedDate = document.getElementById(prefix + 'PiExpectedDate').value;
@@ -2370,7 +2354,7 @@
         const piChannel = document.getElementById(prefix + 'PiChannel') ? document.getElementById(prefix + 'PiChannel').value : '';
 
         if (!partnerId) { showToast('거래처를 선택해주세요.', 'error'); return; }
-        if (!supplyAmount || isNaN(supplyAmount) || supplyAmount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
+        if (!amount || isNaN(amount) || amount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
         if (!issueDate) { showToast('발행일자를 선택해주세요.', 'error'); return; }
         if (type === 'tax' && !piCategory) { showToast('구분(위탁/포어스토어)을 선택해주세요.', 'error'); return; }
         if (type === 'tax' && piCategory === '포어' && !piChannel) { showToast('채널(자사몰/직접발주)을 선택해주세요.', 'error'); return; }
@@ -2384,8 +2368,6 @@
             date: null,
             depositorName: p ? p.name : '선발행',
             amount: amount,
-            supplyAmount: supplyAmount,
-            taxAmount: taxAmount,
             memo: note ? `[선발행] ${note}` : '[선발행]',
             status: '입금대기',
             actionRequired: actionType,
@@ -6321,19 +6303,6 @@
         if (v) el.value = Number(v).toLocaleString();
     }
 
-    function calcTaxPiTax() {
-        const raw = (document.getElementById('taxPiAmount')?.value || '').replace(/,/g, '');
-        const supply = parseInt(raw) || 0;
-        const row = document.getElementById('taxPiTaxRow');
-        if (!row) return;
-        if (supply <= 0) { row.style.display = 'none'; return; }
-        const tax = Math.round(supply * 0.1);
-        const total = supply + tax;
-        document.getElementById('taxPiSupplyDisplay').textContent = formatNumber(supply) + '원';
-        document.getElementById('taxPiTaxDisplay').textContent = formatNumber(tax) + '원';
-        document.getElementById('taxPiTotalDisplay').textContent = formatNumber(total) + '원';
-        row.style.display = 'block';
-    }
 
     function formatBizNo(el) {
         let v = el.value.replace(/[^0-9]/g, '');
