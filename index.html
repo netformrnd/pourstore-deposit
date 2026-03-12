@@ -2357,7 +2357,9 @@
         const prefix = type === 'tax' ? 'tax' : 'cash';
         const partnerId = parseInt(document.getElementById(prefix + 'PiPartner').value);
         const amountStr = document.getElementById(prefix + 'PiAmount').value.replace(/,/g, '');
-        const amount = parseFloat(amountStr);
+        const supplyAmount = parseFloat(amountStr);
+        const taxAmount = type === 'tax' ? Math.round(supplyAmount * 0.1) : 0;
+        const amount = supplyAmount + taxAmount;
         const issueDateEl = document.getElementById(prefix + 'PiIssueDate');
         const issueDate = issueDateEl ? issueDateEl.value : new Date().toISOString().split('T')[0];
         const expectedDate = document.getElementById(prefix + 'PiExpectedDate').value;
@@ -2368,7 +2370,7 @@
         const piChannel = document.getElementById(prefix + 'PiChannel') ? document.getElementById(prefix + 'PiChannel').value : '';
 
         if (!partnerId) { showToast('거래처를 선택해주세요.', 'error'); return; }
-        if (!amount || isNaN(amount) || amount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
+        if (!supplyAmount || isNaN(supplyAmount) || supplyAmount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
         if (!issueDate) { showToast('발행일자를 선택해주세요.', 'error'); return; }
         if (type === 'tax' && !piCategory) { showToast('구분(위탁/포어스토어)을 선택해주세요.', 'error'); return; }
         if (type === 'tax' && piCategory === '포어' && !piChannel) { showToast('채널(자사몰/직접발주)을 선택해주세요.', 'error'); return; }
@@ -2382,6 +2384,8 @@
             date: null,
             depositorName: p ? p.name : '선발행',
             amount: amount,
+            supplyAmount: supplyAmount,
+            taxAmount: taxAmount,
             memo: note ? `[선발행] ${note}` : '[선발행]',
             status: '입금대기',
             actionRequired: actionType,
