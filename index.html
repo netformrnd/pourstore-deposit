@@ -2750,7 +2750,7 @@
                 </div>
             </div>
             <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
-            <colgroup><col style="width:18%"><col style="width:12%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:20%"><col style="width:9%"></colgroup>
+            <colgroup><col style="width:20%"><col style="width:13%"><col style="width:17%"><col style="width:15%"><col style="width:15%"><col style="width:20%"></colgroup>
             <thead><tr style="background:rgba(27,42,74,.05)">
                 <th style="padding:6px 10px;text-align:left;font-weight:600;border-bottom:1px solid var(--border)">거래처</th>
                 <th style="padding:6px 10px;text-align:center;font-weight:600;border-bottom:1px solid var(--border)">건수</th>
@@ -2758,11 +2758,10 @@
                 <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">입금액</th>
                 <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">잔액</th>
                 <th style="padding:6px 10px;text-align:center;font-weight:600;border-bottom:1px solid var(--border)">진행률</th>
-                <th style="padding:6px 10px;text-align:center;font-weight:600;border-bottom:1px solid var(--border)">입금</th>
             </tr></thead><tbody>`;
 
         if (entries.length === 0) {
-            html += `<tr><td colspan="7" style="padding:12px;text-align:center;color:var(--text-sub);font-size:13px">모든 거래처가 완납되었습니다.</td></tr>`;
+            html += `<tr><td colspan="6" style="padding:12px;text-align:center;color:var(--text-sub);font-size:13px">모든 거래처가 완납되었습니다.</td></tr>`;
         }
 
         entries.forEach(e => {
@@ -2770,13 +2769,6 @@
             const pct = e.total > 0 ? Math.round((e.paid / e.total) * 100) : 0;
             const isFullPaid = remain <= 0;
             const rowStyle = isFullPaid ? 'opacity:.55;cursor:pointer' : 'cursor:pointer';
-            // 입금 버튼: 미입금 건이 있으면 첫 번째 미입금건의 입금확인 모달 오픈
-            let depositBtn = '';
-            if (!isFullPaid && e.unpaidIds.length > 0) {
-                depositBtn = `<button class="btn-xs" onclick="event.stopPropagation();openDepositConfirm(${e.unpaidIds[0]},'${tabType}')" style="padding:2px 8px;font-size:11px;border-color:var(--navy);color:var(--navy)">입금</button>`;
-            } else if (isFullPaid) {
-                depositBtn = '<span class="text-muted" style="font-size:11px">완납</span>';
-            }
             html += `<tr style="${rowStyle}" onclick="toggleBalancePaymentHistory('${wrapId}',${e.pid},'${tabType}')" title="클릭하여 입금 내역 보기">
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);font-weight:${isFullPaid ? '400' : '600'}">${e.name} <span style="font-size:10px;color:var(--navy)">▸</span></td>
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">${e.count}건${e.unpaidCount > 0 ? ` <span style="color:var(--navy);font-size:11px">(미입금 ${e.unpaidCount})</span>` : ''}</td>
@@ -2789,10 +2781,9 @@
                         <span style="font-size:11px;color:var(--text-sub);min-width:32px">${pct}%</span>
                     </div>
                 </td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">${depositBtn}</td>
             </tr>`;
             // 입금 내역 펼침 영역
-            html += `<tr id="balHistory_${wrapId}_${e.pid}" style="display:none"><td colspan="7" style="padding:0"></td></tr>`;
+            html += `<tr id="balHistory_${wrapId}_${e.pid}" style="display:none"><td colspan="6" style="padding:0"></td></tr>`;
         });
 
         html += `</tbody></table></div></div>`;
@@ -2833,7 +2824,7 @@
         let detailHtml = `<div style="background:rgba(27,42,74,.02);padding:8px 0 4px;border-top:1px dashed var(--border)">
             <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:6px;padding:0 10px">입금 내역 (${items.length}건)</div>
             <table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
-            <colgroup><col style="width:18%"><col style="width:12%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:20%"><col style="width:9%"></colgroup>
+            <colgroup><col style="width:20%"><col style="width:13%"><col style="width:17%"><col style="width:15%"><col style="width:15%"><col style="width:20%"></colgroup>
             <thead><tr style="background:rgba(27,42,74,.04)">
                 <th style="padding:6px 10px;text-align:left;font-weight:600">입금처</th>
                 <th style="padding:6px 10px;text-align:center;font-weight:600">발행일</th>
@@ -3594,8 +3585,32 @@
                         const idx = deposits.indexOf(d);
                         if (idx !== -1) deposits.splice(idx, 1);
                     }
-                    saveToStorage(true);
+                    // ★ 선발행 매칭은 즉시 Firestore 저장 (디바운스 시 onSnapshot 경쟁 조건 방지)
+                    if (saveTimer) clearTimeout(saveTimer);
+                    const clean = (obj) => JSON.parse(JSON.stringify(obj, (k, v) => v === undefined ? null : v));
+                    try {
+                        localStorage.setItem('dm_deposits', JSON.stringify(deposits));
+                        localStorage.setItem('dm_partners', JSON.stringify(partners));
+                        localStorage.setItem('dm_taxRequests', JSON.stringify(taxRequests));
+                        localStorage.setItem('dm_nextIds', JSON.stringify({ d: nextDepositId, p: nextPartnerId, t: nextTaxReqId }));
+                        lastDepositUpdateStr = new Date().toISOString();
+                        localStorage.setItem('dm_lastUpdated', lastDepositUpdateStr);
+                    } catch(e) {}
+                    DATA_DOC.set({
+                        deposits: clean(deposits),
+                        partners: clean(partners),
+                        taxRequests: clean(taxRequests),
+                        nextIds: { d: nextDepositId, p: nextPartnerId, t: nextTaxReqId },
+                        lastDepositUpdate: lastDepositUpdateStr,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true }).then(() => {
+                        console.log('☁️ 선발행 매칭 Firestore 즉시 저장 완료');
+                    }).catch(err => {
+                        console.error('☁️ 선발행 매칭 Firestore 저장 실패:', err);
+                        showToast('클라우드 저장 실패. 로컬에는 저장됨.', 'error');
+                    });
                     renderAll();
+                    updateCurrentDate();
                     closeModal('depositDetailModal');
                     const msg = excessAmount > 0
                         ? `선발행에 ${formatNumber(matchAmount)}원 매칭 · 잔여 ${formatNumber(excessAmount)}원 입금건 유지`
