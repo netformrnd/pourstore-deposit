@@ -1204,6 +1204,7 @@
 
     // ==================== 데이터 마이그레이션 ====================
     function migrateData() {
+        let migrated = false;
         partners.forEach(p => { if (p.bizCertStored === undefined) p.bizCertStored = false; });
         deposits.forEach(d => {
             if (d.taxRequestId !== undefined) { d.matchedRequestId = d.taxRequestId; delete d.taxRequestId; }
@@ -1285,24 +1286,74 @@
                     if (totalDeducted > 0) {
                         d.originalAmount = d.amount + totalDeducted;
                         d.preIssueMatchedAmount = totalDeducted;
+                        migrated = true;
                     }
                 }
             }
         });
 
+        // ★ 선발행 매칭 데이터 교차검증: partialPayments + consumedDeposits 기반 검증/수정
+        deposits.filter(d => !d.isPreIssue && d.originalAmount && d.preIssueMatchedAmount).forEach(d => {
+            // 실제 선발행 partialPayments에서 이 입금건의 매칭 합계 계산
+            let actualMatched = 0;
+            deposits.filter(pre => pre.isPreIssue && pre.partialPayments).forEach(pre => {
+                pre.partialPayments.forEach(pp => {
+                    if (pp.depositorName === d.depositorName && pp.date === d.date) {
+                        actualMatched += pp.amount;
+                    }
+                });
+            });
+
+            if (actualMatched > 0) {
+                // ★ 이중계산 감지: consumedDeposit에 같은 건이 있고 그 amount가 originalAmount와 같으면
+                // recovery에서 잘못된 값으로 복원된 것
+                const relatedConsumed = consumedDeposits.find(c =>
+                    c.depositorName === d.depositorName && c.date === d.date
+                );
+
+                if (relatedConsumed && relatedConsumed.amount === d.originalAmount) {
+                    // 이미 복원된 건 → consumedDeposit 정리하고 amount 재계산
+                    // consumedAmount가 있으면 그게 실제 잔여금
+                    if (relatedConsumed.consumedAmount) {
+                        d.amount = relatedConsumed.consumedAmount;
+                        d.originalAmount = relatedConsumed.consumedAmount + actualMatched;
+                    } else {
+                        // consumedAmount 없음 → originalAmount가 이중계산된 경우
+                        // originalAmount - actualMatched = amount (현재), 이것이 다시 originalAmount가 되어야 함
+                        // 즉 현재 amount가 실제 originalAmount
+                        const realOriginal = d.amount; // recovery가 만든 amount = 잘못된original - matched
+                        d.originalAmount = realOriginal;
+                        d.amount = realOriginal - actualMatched;
+                    }
+                    d.preIssueMatchedAmount = actualMatched;
+                    const cidx = consumedDeposits.indexOf(relatedConsumed);
+                    if (cidx !== -1) consumedDeposits.splice(cidx, 1);
+                    console.log(`🔧 이중계산 수정: ${d.depositorName} ${d.date} → 원래입금:${formatNumber(d.originalAmount)}원, 잔여:${formatNumber(d.amount)}원, 매칭:${formatNumber(actualMatched)}원`);
+                    migrated = true;
+                } else if (d.preIssueMatchedAmount !== actualMatched) {
+                    // preIssueMatchedAmount가 실제와 다르면 수정
+                    d.preIssueMatchedAmount = actualMatched;
+                    d.originalAmount = d.amount + actualMatched;
+                    migrated = true;
+                }
+            }
+        });
+
         // ★ consumedDeposits 복구: 소실된 입금건의 잔여금 복원
-        console.log('📋 consumedDeposits:', JSON.stringify(consumedDeposits));
-        console.log('📋 엔트 관련 deposits (전체):', JSON.stringify(deposits.filter(d => d.depositorName && d.depositorName.includes('엔트')).map(d => ({id:d.id, name:d.depositorName, amt:d.amount, origAmt:d.originalAmount, matched:d.preIssueMatchedAmount, pre:d.isPreIssue, status:d.status, date:d.date, auto:d.autoCategory, memo:(d.memo||'').substring(0,80)}))));
         if (consumedDeposits.length > 0) {
             const toRestore = [];
             consumedDeposits.forEach((c, idx) => {
-                if (!c.amount) return;
+                if (!c.amount && !c.consumedAmount) return;
+
                 // 이미 같은 건이 deposits에 존재하면 복원 안 함
                 const alreadyExists = deposits.some(d =>
-                    !d.isPreIssue && d.date === c.date && d.depositorName === c.depositorName &&
-                    (d.amount === c.amount || d.originalAmount === c.amount)
+                    !d.isPreIssue && d.date === c.date && d.depositorName === c.depositorName
                 );
-                if (alreadyExists) return;
+                if (alreadyExists) {
+                    // 이미 복원된 건 → consumedDeposits에서 제거
+                    toRestore.push({ ...c, consumedIdx: idx, skipRestore: true });
+                    return;
+                }
 
                 // 활성 선발행 건에서 이 입금건을 참조하는 총 매칭금액 계산
                 let matchedByPreIssues = 0;
@@ -1316,36 +1367,56 @@
                     }
                 });
 
-                // 원래 금액에서 선발행 매칭분을 뺀 잔여금이 있으면 복원
-                const restoredAmount = c.amount - matchedByPreIssues;
+                // ★ consumedAmount가 있으면 그것을 사용 (소진 시점의 실제 잔여금)
+                // consumedAmount가 없으면 amount(=originalAmount)에서 매칭분 차감
+                let restoredAmount;
+                let realOriginal;
+                if (c.consumedAmount) {
+                    // 새 형식: consumedAmount = 소진 시점 잔여금, amount = 원래 총 입금액
+                    restoredAmount = c.consumedAmount;
+                    realOriginal = c.consumedAmount + matchedByPreIssues;
+                } else {
+                    // 구 형식: amount = originalAmount (이중계산 가능)
+                    // 매칭분을 빼서 잔여금 계산하되, 결과가 원래 입금액보다 크면 이중계산 의심
+                    restoredAmount = c.amount - matchedByPreIssues;
+                    realOriginal = c.amount;
+                    // 이중계산 감지: restoredAmount가 matchedByPreIssues보다 크면 의심
+                    if (matchedByPreIssues > 0 && restoredAmount > matchedByPreIssues * 2) {
+                        console.warn(`⚠️ consumedDeposit 이중계산 의심: ${c.depositorName} ${c.date} - stored:${c.amount}, matched:${matchedByPreIssues}, restored:${restoredAmount}`);
+                    }
+                }
+
                 if (restoredAmount > 0) {
-                    toRestore.push({ ...c, consumedIdx: idx, restoredAmount, matchedByPreIssues });
+                    toRestore.push({ ...c, consumedIdx: idx, restoredAmount, matchedByPreIssues, realOriginal });
                 }
             });
             // 역순으로 삭제하면서 복원
-            toRestore.reverse().forEach(c => {
-                deposits.push({
-                    id: nextDepositId++,
-                    date: c.date,
-                    depositorName: c.depositorName,
-                    amount: c.restoredAmount,
-                    originalAmount: c.matchedByPreIssues > 0 ? c.amount : undefined,
-                    preIssueMatchedAmount: c.matchedByPreIssues > 0 ? c.matchedByPreIssues : undefined,
-                    memo: c.matchedByPreIssues > 0 ? `[선발행 매칭 ${formatNumber(c.matchedByPreIssues)}원 차감]` : '',
-                    status: '확인중',
-                    category: '',
-                    partnerId: null,
-                    channel: '',
-                    paymentMethod: '',
-                    cardCompany: '',
-                    actionRequired: '',
-                    orderNo: '',
-                    note: '',
-                    autoCategory: null,
-                    createdAt: new Date().toISOString()
-                });
-                console.log(`🔄 소실된 입금건 복원: ${c.depositorName} ${c.date} ${formatNumber(c.restoredAmount)}원 (원래 ${formatNumber(c.amount)}원, 매칭 ${formatNumber(c.matchedByPreIssues)}원)`);
+            toRestore.sort((a, b) => b.consumedIdx - a.consumedIdx).forEach(c => {
+                if (!c.skipRestore) {
+                    deposits.push({
+                        id: nextDepositId++,
+                        date: c.date,
+                        depositorName: c.depositorName,
+                        amount: c.restoredAmount,
+                        originalAmount: c.matchedByPreIssues > 0 ? c.realOriginal : undefined,
+                        preIssueMatchedAmount: c.matchedByPreIssues > 0 ? c.matchedByPreIssues : undefined,
+                        memo: c.matchedByPreIssues > 0 ? `[선발행 매칭 ${formatNumber(c.matchedByPreIssues)}원 차감]` : '',
+                        status: '확인중',
+                        category: '',
+                        partnerId: null,
+                        channel: '',
+                        paymentMethod: '',
+                        cardCompany: '',
+                        actionRequired: '',
+                        orderNo: '',
+                        note: '',
+                        autoCategory: null,
+                        createdAt: new Date().toISOString()
+                    });
+                    console.log(`🔄 소실된 입금건 복원: ${c.depositorName} ${c.date} ${formatNumber(c.restoredAmount)}원 (원래 ${formatNumber(c.realOriginal)}원, 매칭 ${formatNumber(c.matchedByPreIssues)}원)`);
+                }
                 consumedDeposits.splice(c.consumedIdx, 1);
+                migrated = true;
             });
         }
 
@@ -1355,6 +1426,12 @@
             if (t.status === '마감') t.status = '매칭완료';
             t.status = calcTaxReqStatus(t);
         });
+
+        // ★ 마이그레이션으로 변경사항이 있으면 즉시 저장 (Firestore 동기화 누락 방지)
+        if (migrated) {
+            console.log('💾 마이그레이션 변경사항 자동 저장');
+            saveToStorage(true);
+        }
     }
 
     // ==================== INIT ====================
@@ -2539,7 +2616,7 @@
 
                     if (applyAmount >= bd.amount) {
                         // 잔여금 전액 소진 → 입금건 삭제
-                        consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount });
+                        consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount || bd.amount, consumedAmount: bd.amount });
                         const idx = deposits.indexOf(bd);
                         if (idx !== -1) deposits.splice(idx, 1);
                     } else {
@@ -2764,7 +2841,7 @@
             d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(matchAmount)}원 차감]`;
         } else {
             // 전액 매칭 → 입금건 삭제 (중복업로드 방지용 기록)
-            consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount });
+            consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
             const idx = deposits.indexOf(d);
             if (idx !== -1) deposits.splice(idx, 1);
         }
@@ -2832,7 +2909,7 @@
                 pre.date = exactMatch.date; // 전액 완료
                 pre.status = '완료';
                 usedIds.add(exactMatch.id);
-                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount });
+                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
                 const idx = deposits.indexOf(exactMatch);
                 if (idx !== -1) deposits.splice(idx, 1);
                 matched++;
@@ -2849,7 +2926,7 @@
                     pre.partialPayments.push({ date: nd.date, amount: nd.amount, depositorName: nd.depositorName });
                     runningRemain -= nd.amount;
                     usedIds.add(nd.id);
-                    consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount });
+                    consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount });
                     const idx = deposits.indexOf(nd);
                     if (idx !== -1) deposits.splice(idx, 1);
                     partialMatched = true;
@@ -3855,7 +3932,7 @@
                         d.amount = remainingAmount;
                         d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(totalMatched)}원 차감]`;
                     } else {
-                        consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount });
+                        consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
                         const idx = deposits.indexOf(d);
                         if (idx !== -1) deposits.splice(idx, 1);
                     }
