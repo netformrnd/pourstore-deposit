@@ -625,7 +625,7 @@
             <div style="background:#F8FAFC;padding:14px;border-radius:8px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
                     <div><span class="text-muted text-sm">입금자명</span><div style="font-size:1.1rem;font-weight:600" id="ddDepositor">-</div></div>
-                    <div class="text-right"><span class="text-muted text-sm">금액</span><div style="font-size:1.2rem;font-weight:600;color:var(--navy)" id="ddAmount">0원</div></div>
+                    <div class="text-right"><span class="text-muted text-sm">금액</span><div style="font-size:1.2rem;font-weight:600;color:var(--navy)" id="ddAmount">0원</div><div id="ddOriginalAmountInfo" style="display:none;font-size:11px;color:var(--text-sub);font-weight:500;margin-top:2px"></div></div>
                 </div>
                 <div class="text-muted text-sm mt-2" id="ddDateMemo">-</div>
             </div>
@@ -740,9 +740,9 @@
                                 <input type="checkbox" id="ddIsPreIssuePayment" onchange="togglePreIssuePayment()" style="margin:0">
                                 기존 선발행 건에 대한 입금
                             </label>
-                            <select id="ddPreIssueTarget" style="display:none;margin-top:6px;width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;font-family:inherit">
-                                <option value="">-- 선발행 건 선택 --</option>
-                            </select>
+                            <div id="ddPreIssueTarget" style="display:none;margin-top:6px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);background:#fff">
+                            </div>
+                            <div id="ddPreIssueMatchInfo" style="display:none;margin-top:4px;font-size:11px;color:var(--navy);font-weight:600;padding:4px 8px;background:rgba(27,42,74,.04);border-radius:4px"></div>
                         </div>
                     </div>
                 </div>
@@ -1129,6 +1129,7 @@
     let pendingBizCertDataUrl = null;   // 미리보기/OCR용 DataURL
     let learnedOnlineNames = [];  // 사용자가 수동으로 '온라인'으로 분류한 입금처명
     let learnedCardNames = [];    // 사용자가 수동으로 '카드사'로 분류한 입금처명
+    let consumedDeposits = [];    // 선발행 전액매칭으로 삭제된 입금건 기록 (중복업로드 방지용)
 
     // ==================== INDEXEDDB FOR BIZ CERT IMAGES ====================
     const BizCertDB = {
@@ -1272,7 +1273,82 @@
             if (d.isPreIssue && !d.date) {
                 d.status = '입금대기';
             }
+            // ★ 기존 선발행 매칭 잔여금 데이터 보정 (originalAmount 없는 건 복원)
+            if (!d.isPreIssue && !d.originalAmount && d.memo) {
+                const memoMatches = d.memo.match(/\[선발행 매칭 ([\d,]+)원 차감\]/g);
+                if (memoMatches) {
+                    let totalDeducted = 0;
+                    memoMatches.forEach(m => {
+                        const amt = m.match(/([\d,]+)원/);
+                        if (amt) totalDeducted += parseFloat(amt[1].replace(/,/g, ''));
+                    });
+                    if (totalDeducted > 0) {
+                        d.originalAmount = d.amount + totalDeducted;
+                        d.preIssueMatchedAmount = totalDeducted;
+                    }
+                }
+            }
         });
+
+        // ★ consumedDeposits 복구: 소실된 입금건의 잔여금 복원
+        console.log('📋 consumedDeposits:', JSON.stringify(consumedDeposits));
+        console.log('📋 엔트 관련 deposits (전체):', JSON.stringify(deposits.filter(d => d.depositorName && d.depositorName.includes('엔트')).map(d => ({id:d.id, name:d.depositorName, amt:d.amount, origAmt:d.originalAmount, matched:d.preIssueMatchedAmount, pre:d.isPreIssue, status:d.status, date:d.date, auto:d.autoCategory, memo:(d.memo||'').substring(0,80)}))));
+        if (consumedDeposits.length > 0) {
+            const toRestore = [];
+            consumedDeposits.forEach((c, idx) => {
+                if (!c.amount) return;
+                // 이미 같은 건이 deposits에 존재하면 복원 안 함
+                const alreadyExists = deposits.some(d =>
+                    !d.isPreIssue && d.date === c.date && d.depositorName === c.depositorName &&
+                    (d.amount === c.amount || d.originalAmount === c.amount)
+                );
+                if (alreadyExists) return;
+
+                // 활성 선발행 건에서 이 입금건을 참조하는 총 매칭금액 계산
+                let matchedByPreIssues = 0;
+                deposits.forEach(d => {
+                    if (d.isPreIssue && d.partialPayments) {
+                        d.partialPayments.forEach(pp => {
+                            if (pp.depositorName === c.depositorName && pp.date === c.date) {
+                                matchedByPreIssues += pp.amount;
+                            }
+                        });
+                    }
+                });
+
+                // 원래 금액에서 선발행 매칭분을 뺀 잔여금이 있으면 복원
+                const restoredAmount = c.amount - matchedByPreIssues;
+                if (restoredAmount > 0) {
+                    toRestore.push({ ...c, consumedIdx: idx, restoredAmount, matchedByPreIssues });
+                }
+            });
+            // 역순으로 삭제하면서 복원
+            toRestore.reverse().forEach(c => {
+                deposits.push({
+                    id: nextDepositId++,
+                    date: c.date,
+                    depositorName: c.depositorName,
+                    amount: c.restoredAmount,
+                    originalAmount: c.matchedByPreIssues > 0 ? c.amount : undefined,
+                    preIssueMatchedAmount: c.matchedByPreIssues > 0 ? c.matchedByPreIssues : undefined,
+                    memo: c.matchedByPreIssues > 0 ? `[선발행 매칭 ${formatNumber(c.matchedByPreIssues)}원 차감]` : '',
+                    status: '확인중',
+                    category: '',
+                    partnerId: null,
+                    channel: '',
+                    paymentMethod: '',
+                    cardCompany: '',
+                    actionRequired: '',
+                    orderNo: '',
+                    note: '',
+                    autoCategory: null,
+                    createdAt: new Date().toISOString()
+                });
+                console.log(`🔄 소실된 입금건 복원: ${c.depositorName} ${c.date} ${formatNumber(c.restoredAmount)}원 (원래 ${formatNumber(c.amount)}원, 매칭 ${formatNumber(c.matchedByPreIssues)}원)`);
+                consumedDeposits.splice(c.consumedIdx, 1);
+            });
+        }
+
         taxRequests.forEach(t => {
             if (t.issueDate === undefined) t.issueDate = null;
             if (t.status === '요청') t.status = '요청생성';
@@ -1393,6 +1469,7 @@
             }
             if (data.learnedOnlineNames) learnedOnlineNames = data.learnedOnlineNames;
             if (data.learnedCardNames) learnedCardNames = data.learnedCardNames;
+            if (data.consumedDeposits) consumedDeposits = data.consumedDeposits;
             migrateData();
             renderAll();
             updateCurrentDate();
@@ -1404,6 +1481,7 @@
                 localStorage.setItem('dm_nextIds', JSON.stringify({ d: nextDepositId, p: nextPartnerId, t: nextTaxReqId }));
                 localStorage.setItem('dm_learnedOnlineNames', JSON.stringify(learnedOnlineNames));
                 localStorage.setItem('dm_learnedCardNames', JSON.stringify(learnedCardNames));
+                localStorage.setItem('dm_consumedDeposits', JSON.stringify(consumedDeposits));
             } catch(e) {}
         } finally {
             isRemoteUpdate = false;
@@ -1450,6 +1528,7 @@
             localStorage.setItem('dm_nextIds', JSON.stringify({ d: nextDepositId, p: nextPartnerId, t: nextTaxReqId }));
             localStorage.setItem('dm_learnedOnlineNames', JSON.stringify(learnedOnlineNames));
             localStorage.setItem('dm_learnedCardNames', JSON.stringify(learnedCardNames));
+            localStorage.setItem('dm_consumedDeposits', JSON.stringify(consumedDeposits));
             if (depositChanged) {
                 lastDepositUpdateStr = new Date().toISOString();
                 localStorage.setItem('dm_lastUpdated', lastDepositUpdateStr);
@@ -1468,6 +1547,7 @@
                 nextIds: { d: nextDepositId, p: nextPartnerId, t: nextTaxReqId },
                 learnedOnlineNames: learnedOnlineNames,
                 learnedCardNames: learnedCardNames,
+                consumedDeposits: clean(consumedDeposits),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             if (_depositChanged) {
@@ -1498,6 +1578,8 @@
             const lcn = localStorage.getItem('dm_learnedCardNames');
             if (lon) learnedOnlineNames = JSON.parse(lon);
             if (lcn) learnedCardNames = JSON.parse(lcn);
+            const cd = localStorage.getItem('dm_consumedDeposits');
+            if (cd) consumedDeposits = JSON.parse(cd);
         } catch(e) { console.error('localStorage load error:', e); }
     }
 
@@ -1548,11 +1630,26 @@
     function processUploadedData(data) {
         let added = 0, dupes = 0, autoCatCount = 0;
         const year = new Date().getFullYear();
+
+        // ★ 컬럼 키 매핑: 엑셀 헤더의 공백/특수문자 차이를 유연하게 처리
+        function findKey(row, candidates) {
+            // 정확 매칭 우선
+            for (const c of candidates) { if (row[c] !== undefined && row[c] !== '') return row[c]; }
+            // 공백 제거 후 매칭
+            const keys = Object.keys(row);
+            for (const c of candidates) {
+                const norm = c.replace(/\s/g, '');
+                const found = keys.find(k => k.replace(/\s/g, '') === norm);
+                if (found && row[found] !== undefined && row[found] !== '') return row[found];
+            }
+            return null;
+        }
+
         data.forEach(row => {
-            let dateStr = row['월/일'] || row['거래일'] || row['거래일자'] || row['입금일'] || row['일자'] || row['날짜'] || '';
-            const depositorName = row['적요'] || row['거래처'] || row['내용'] || row['거래내용'] || row['입금자명'] || row['이름'] || '';
-            const depositAmt = row['입금액'] || row['입금'] || row['금액'] || 0;
-            const memo = row['메모'] || row['비고'] || row['적요내용'] || '';
+            let dateStr = findKey(row, ['월/일','거래일','거래일자','입금일','일자','날짜']) || '';
+            const depositorName = findKey(row, ['적요','거래처','내용','거래내용','입금자명','입금처','이름']) || '';
+            const depositAmt = findKey(row, ['입금액','입금','입금금액','입금 금액','금액']) || 0;
+            const memo = findKey(row, ['메모','비고','적요내용']) || '';
 
             if (dateStr && typeof dateStr === 'string' && dateStr.match(/^\d{1,2}-\d{1,2}$/)) {
                 const [m, d] = dateStr.split('-');
@@ -1561,7 +1658,13 @@
             const amount = parseFloat(String(depositAmt).replace(/,/g, '')) || 0;
             if (amount > 0 && depositorName) {
                 const fDate = formatDate(dateStr);
-                const isDupe = deposits.some(r => r.date === fDate && r.depositorName === depositorName && r.amount === amount);
+                // ★ 중복 체크: 현재 목록 + 금액 변경된 건(originalAmount) + 선발행 전액매칭으로 삭제된 건
+                const isDupe = deposits.some(r => {
+                    const matchDate = r.date === fDate;
+                    const matchName = r.depositorName === depositorName;
+                    const matchAmt = r.amount === amount || r.originalAmount === amount;
+                    return matchDate && matchName && matchAmt;
+                }) || consumedDeposits.some(r => r.date === fDate && r.depositorName === depositorName && r.amount === amount);
                 if (!isDupe) {
                     // ★ 거래처 추천 매칭
                     const matchResult = findBestPartnerMatch(depositorName);
@@ -1781,7 +1884,7 @@
             }
 
             // 상태 뱃지 (클릭 가능)
-            const statusBadge = `<span class="badge-pill badge-${d.status} status-badge" onclick="event.stopPropagation();cycleDepositStatus(${d.id})" title="클릭하여 상태 변경">${d.status}</span>`;
+            const statusBadge = `<span class="badge-pill badge-${d.status} status-badge" onclick="event.stopPropagation();cycleDepositStatus(${d.id})" oncontextmenu="showStatusContextMenu(event,${d.id})" title="클릭: 다음 상태 · 우클릭: 상태 선택">${d.status}</span>`;
 
             // 처리사항
             let actionCell = '';
@@ -1800,12 +1903,18 @@
             }
 
             const isRowCompleted = d.status === '완료';
+            // ★ 선발행 매칭 잔여금액 표시
+            let amountCell = `${formatNumber(d.amount)}원`;
+            if (d.originalAmount && d.preIssueMatchedAmount) {
+                amountCell = `<div style="line-height:1.3"><span style="font-size:13px;font-weight:700">${formatNumber(d.amount)}원</span><br><span style="font-size:10px;color:var(--text-dim);font-weight:500" title="입금 ${formatNumber(d.originalAmount)}원 중 선발행 ${formatNumber(d.preIssueMatchedAmount)}원 매칭">입금${formatNumber(d.originalAmount)} − 매칭${formatNumber(d.preIssueMatchedAmount)}</span></div>`;
+            }
+
             return `<tr class="clickable ${isRowCompleted ? 'row-issued' : ''}" onclick="openDepositDetail(${d.id})">
                 <td class="checkbox-cell"><input type="checkbox" class="dep-check" value="${d.id}" onchange="updateBulkBtn()" onclick="event.stopPropagation()"></td>
                 <td>${d.date ? d.date.substring(0, 10) : '-'}</td>
                 <td>${d.depositorName}</td>
                 <td>${catBadge}</td>
-                <td class="amount positive">${formatNumber(d.amount)}원</td>
+                <td class="amount positive">${amountCell}</td>
                 <td class="text-sm">${orderNoCell}</td>
                 <td class="text-sm">${pmCell}</td>
                 <td>${statusBadge}</td>
@@ -2146,6 +2255,7 @@
         if (!d) return;
         if (isPreIssue) {
             if (!confirm(`"${d.depositorName}" ${formatNumber(d.amount)}원 선발행 건을 삭제하시겠습니까?`)) return;
+            restorePreIssuePayments(d);
             deposits = deposits.filter(r => r.id !== id);
             showToast('선발행 건이 삭제되었습니다.', 'info');
         } else {
@@ -2394,14 +2504,75 @@
 
         deposits.push(newDeposit);
 
-        saveToStorage();
+        // ★ 해당 거래처의 미사용 잔여금(선발행 매칭 후 남은 입금건) 자동 감지
+        const partnerBalanceDeposits = deposits.filter(d =>
+            d !== newDeposit && !d.isPreIssue && !d.autoCategory &&
+            d.originalAmount && d.preIssueMatchedAmount && d.amount > 0 &&
+            (d.partnerId === partnerId || d.suggestedPartnerId === partnerId ||
+             (p && d.depositorName && (
+                d.depositorName.replace(/[\s\(\)（）]/g, '').toLowerCase().includes(p.name.replace(/\s/g, '').toLowerCase()) ||
+                p.name.replace(/\s/g, '').toLowerCase().includes(d.depositorName.replace(/[\s\(\)（）]/g, '').toLowerCase())
+             )))
+        );
+
+        if (partnerBalanceDeposits.length > 0) {
+            const totalBalance = partnerBalanceDeposits.reduce((s, d) => s + d.amount, 0);
+            const balanceInfo = partnerBalanceDeposits.map(d =>
+                `  · ${d.date || '-'} 잔여 ${formatNumber(d.amount)}원 (입금 ${formatNumber(d.originalAmount)}원 중)`
+            ).join('\n');
+
+            if (confirm(`${p ? p.name : '해당 거래처'}의 미사용 잔여금이 있습니다.\n\n${balanceInfo}\n\n총 잔여금: ${formatNumber(totalBalance)}원\n선발행 금액: ${formatNumber(amount)}원\n\n잔여금을 이 선발행 건에 적용하시겠습니까?`)) {
+                // 잔여금을 선발행 건에 적용
+                if (!newDeposit.partialPayments) newDeposit.partialPayments = [];
+                let remaining = amount;
+
+                partnerBalanceDeposits.forEach(bd => {
+                    if (remaining <= 0) return;
+                    const applyAmount = Math.min(bd.amount, remaining);
+
+                    newDeposit.partialPayments.push({
+                        date: bd.date,
+                        amount: applyAmount,
+                        depositorName: bd.depositorName
+                    });
+                    remaining -= applyAmount;
+
+                    if (applyAmount >= bd.amount) {
+                        // 잔여금 전액 소진 → 입금건 삭제
+                        consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount });
+                        const idx = deposits.indexOf(bd);
+                        if (idx !== -1) deposits.splice(idx, 1);
+                    } else {
+                        // 일부만 적용 → 잔여금 갱신
+                        bd.preIssueMatchedAmount += applyAmount;
+                        bd.amount -= applyAmount;
+                        bd.memo = (bd.memo || '') + ` [선발행 매칭 ${formatNumber(applyAmount)}원 차감]`;
+                    }
+                });
+
+                // 선발행 건 완납 체크
+                const totalPaid = newDeposit.partialPayments.reduce((s, x) => s + x.amount, 0);
+                if (totalPaid >= newDeposit.amount) {
+                    newDeposit.date = newDeposit.partialPayments[newDeposit.partialPayments.length - 1].date;
+                    newDeposit.status = '완료';
+                }
+
+                const appliedTotal = amount - remaining;
+                showToast(`선발행 등록 완료 · 잔여금 ${formatNumber(appliedTotal)}원 적용${remaining > 0 ? ` · 미수 ${formatNumber(remaining)}원` : ' · 완납'}`, 'success');
+            } else {
+                showToast(`선발행 요청이 등록되었습니다.${expectedDate ? ' (입금예정: ' + expectedDate + ')' : ''}`, 'success');
+            }
+        } else {
+            showToast(`선발행 요청이 등록되었습니다.${expectedDate ? ' (입금예정: ' + expectedDate + ')' : ''}`, 'success');
+        }
+
+        saveToStorage(true);
         renderAll();
         if (type === 'tax') renderTaxInvoiceList();
         else renderCashReceiptList();
 
         // 폼 닫기
         togglePreIssueForm(type);
-        showToast(`선발행 요청이 등록되었습니다.${expectedDate ? ' (입금예정: ' + expectedDate + ')' : ''}`, 'success');
     }
 
     // ==================== 선발행 입금확인 (분할입금 지원) ====================
@@ -2586,11 +2757,14 @@
         }
 
         if (excessAmount > 0) {
-            // 초과분은 원래 입금건에 남김
+            // ★ 원래 입금액 보존
+            d.originalAmount = d.originalAmount || d.amount;
+            d.preIssueMatchedAmount = (d.preIssueMatchedAmount || 0) + matchAmount;
             d.amount = excessAmount;
             d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(matchAmount)}원 차감]`;
         } else {
-            // 전액 매칭 → 입금건 삭제
+            // 전액 매칭 → 입금건 삭제 (중복업로드 방지용 기록)
+            consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount });
             const idx = deposits.indexOf(d);
             if (idx !== -1) deposits.splice(idx, 1);
         }
@@ -2658,6 +2832,7 @@
                 pre.date = exactMatch.date; // 전액 완료
                 pre.status = '완료';
                 usedIds.add(exactMatch.id);
+                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount });
                 const idx = deposits.indexOf(exactMatch);
                 if (idx !== -1) deposits.splice(idx, 1);
                 matched++;
@@ -2674,12 +2849,15 @@
                     pre.partialPayments.push({ date: nd.date, amount: nd.amount, depositorName: nd.depositorName });
                     runningRemain -= nd.amount;
                     usedIds.add(nd.id);
+                    consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount });
                     const idx = deposits.indexOf(nd);
                     if (idx !== -1) deposits.splice(idx, 1);
                     partialMatched = true;
                 } else if (runningRemain > 0) {
                     // ★ 입금액 > 잔액: 잔액만큼만 매칭, 초과분은 입금건에 남김
                     pre.partialPayments.push({ date: nd.date, amount: runningRemain, depositorName: nd.depositorName });
+                    nd.originalAmount = nd.originalAmount || nd.amount;
+                    nd.preIssueMatchedAmount = (nd.preIssueMatchedAmount || 0) + runningRemain;
                     nd.amount -= runningRemain;
                     nd.memo = (nd.memo || '') + ` [선발행 매칭 ${formatNumber(runningRemain)}원 차감]`;
                     runningRemain = 0;
@@ -2884,6 +3062,71 @@
         row.style.display = 'table-row';
     }
 
+    // ★ 선발행 삭제 시 연결된 입금건 금액 복원
+    function restorePreIssuePayments(preDeposit) {
+        const pp = preDeposit.partialPayments || [];
+        if (pp.length === 0) return;
+
+        pp.forEach(payment => {
+            // 1) 아직 deposits에 남아있는 입금건 찾기 (잔여금이 있던 건)
+            const existing = deposits.find(d =>
+                !d.isPreIssue && d.depositorName === payment.depositorName &&
+                d.date === payment.date && d.originalAmount
+            );
+            if (existing) {
+                // 금액 복원
+                existing.amount += payment.amount;
+                existing.preIssueMatchedAmount = (existing.preIssueMatchedAmount || 0) - payment.amount;
+                // 매칭 금액이 0 이하면 원래 상태로 완전 복원
+                if (existing.preIssueMatchedAmount <= 0) {
+                    delete existing.originalAmount;
+                    delete existing.preIssueMatchedAmount;
+                    // 메모에서 매칭 차감 기록 제거
+                    existing.memo = (existing.memo || '').replace(/\s*\[선발행 매칭 [\d,]+원 차감\]/g, '');
+                }
+                return;
+            }
+
+            // 2) consumedDeposits에서 삭제된 입금건 복원
+            const consumedIdx = consumedDeposits.findIndex(c =>
+                c.depositorName === payment.depositorName && c.date === payment.date
+            );
+            if (consumedIdx !== -1) {
+                const consumed = consumedDeposits[consumedIdx];
+                // 입금건 재생성
+                deposits.push({
+                    id: nextDepositId++,
+                    date: consumed.date,
+                    depositorName: consumed.depositorName,
+                    amount: payment.amount,
+                    originalAmount: consumed.amount,
+                    preIssueMatchedAmount: consumed.amount - payment.amount,
+                    memo: consumed.amount - payment.amount > 0 ? `[선발행 매칭 ${formatNumber(consumed.amount - payment.amount)}원 차감]` : '',
+                    status: '확인중',
+                    category: '',
+                    partnerId: preDeposit.partnerId || null,
+                    channel: '',
+                    paymentMethod: '',
+                    cardCompany: '',
+                    actionRequired: '',
+                    orderNo: '',
+                    note: '',
+                    autoCategory: null,
+                    createdAt: new Date().toISOString()
+                });
+                // 완전 복원이면 originalAmount 제거
+                const restored = deposits[deposits.length - 1];
+                if (restored.preIssueMatchedAmount <= 0) {
+                    restored.amount = consumed.amount;
+                    delete restored.originalAmount;
+                    delete restored.preIssueMatchedAmount;
+                    restored.memo = '';
+                }
+                consumedDeposits.splice(consumedIdx, 1);
+            }
+        });
+    }
+
     // ★ 선발행 건 삭제 (미입금 건만)
     function deletePreIssue(depositId) {
         const d = deposits.find(r => r.id === depositId);
@@ -2895,6 +3138,8 @@
         } else {
             if (!confirm(`"${d.depositorName}" ${formatNumber(d.amount)}원 선발행 건을 삭제하시겠습니까?`)) return;
         }
+        // ★ 연결된 입금건 금액 복원
+        restorePreIssuePayments(d);
         const idx = deposits.indexOf(d);
         if (idx !== -1) deposits.splice(idx, 1);
         saveToStorage(true);
@@ -2916,6 +3161,9 @@
         const payCount = pp.length || (d.date ? 1 : 0);
 
         if (!confirm(`"${d.depositorName}" 선발행 건의 입금 매칭을 취소하시겠습니까?\n(${payCount}건 · ${formatNumber(paidAmt)}원의 입금 기록이 해제됩니다)`)) return;
+
+        // ★ 연결된 입금건 금액 복원
+        restorePreIssuePayments(d);
 
         // 입금 관련 필드만 초기화 (계산서 발행 상태는 유지!)
         d.date = '';
@@ -3226,6 +3474,14 @@
         // 기본 정보
         document.getElementById('ddDepositor').textContent = d.depositorName;
         document.getElementById('ddAmount').textContent = formatNumber(d.amount) + '원';
+        // ★ 원래 입금액/매칭 정보 표시
+        const origInfo = document.getElementById('ddOriginalAmountInfo');
+        if (d.originalAmount && d.preIssueMatchedAmount) {
+            origInfo.innerHTML = `원래 입금: ${formatNumber(d.originalAmount)}원 · 선발행 매칭: ${formatNumber(d.preIssueMatchedAmount)}원`;
+            origInfo.style.display = 'block';
+        } else {
+            origInfo.style.display = 'none';
+        }
         document.getElementById('ddDateMemo').textContent = `${d.date || '-'} · ${d.memo || ''}`;
         document.getElementById('ddOrderNo').value = d.orderNo || '';
         document.getElementById('ddNote').value = d.note || '';
@@ -3260,6 +3516,8 @@
         // 선발행입금 옵션 초기화
         document.getElementById('ddIsPreIssuePayment').checked = false;
         document.getElementById('ddPreIssueTarget').style.display = 'none';
+        document.getElementById('ddPreIssueTarget').innerHTML = '';
+        document.getElementById('ddPreIssueMatchInfo').style.display = 'none';
         document.getElementById('preIssuePaymentOption').style.display = 'none';
 
         // 구분별 필드 표시
@@ -3555,20 +3813,27 @@
 
             d.actionRequired = computeActionRequired(d.category, d.channel, d.paymentMethod, d.cardCompany);
 
-            // ★ 선발행입금 체크 시: 해당 선발행 건에 분할입금 매칭
+            // ★ 선발행입금 체크 시: 해당 선발행 건에 분할입금 매칭 (다중 선택 지원)
             const isPrePayment = document.getElementById('ddIsPreIssuePayment').checked;
-            const preTargetId = parseInt(document.getElementById('ddPreIssueTarget').value);
-            if (isPrePayment && preTargetId) {
-                const pre = deposits.find(r => r.id === preTargetId);
-                if (pre && pre.isPreIssue) {
+            const preTargetCbs = document.querySelectorAll('.preIssueTargetCb:checked');
+            if (isPrePayment && preTargetCbs.length > 0) {
+                let remainingAmount = d.amount;
+                let totalMatched = 0;
+                const matchedNames = [];
+
+                // 선택된 선발행 건들에 순서대로 매칭
+                preTargetCbs.forEach(cb => {
+                    if (remainingAmount <= 0) return;
+                    const preTargetId = parseInt(cb.value);
+                    const pre = deposits.find(r => r.id === preTargetId);
+                    if (!pre || !pre.isPreIssue) return;
+
                     if (!pre.partialPayments) pre.partialPayments = [];
-                    // ★ 선발행 잔액 계산
                     const prevPaid = pre.partialPayments.reduce((s, x) => s + x.amount, 0);
                     const preRemain = pre.amount - prevPaid;
-                    // 입금액이 선발행 잔액보다 크면 → 잔액만큼만 매칭, 차액은 남김
-                    const matchAmount = Math.min(d.amount, preRemain);
-                    const excessAmount = d.amount - matchAmount;
+                    if (preRemain <= 0) return;
 
+                    const matchAmount = Math.min(remainingAmount, preRemain);
                     pre.partialPayments.push({ date: d.date, amount: matchAmount, depositorName: d.depositorName });
                     const totalPaid = pre.partialPayments.reduce((s, x) => s + x.amount, 0);
                     if (totalPaid >= pre.amount) {
@@ -3576,12 +3841,21 @@
                         pre.status = '완료';
                     }
 
-                    if (excessAmount > 0) {
-                        // ★ 초과 금액: 원래 입금건의 금액을 차액으로 변경하여 유지
-                        d.amount = excessAmount;
-                        d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(matchAmount)}원 차감]`;
+                    remainingAmount -= matchAmount;
+                    totalMatched += matchAmount;
+                    const p = pre.partnerId ? getPartnerById(pre.partnerId) : null;
+                    matchedNames.push(p ? p.name : pre.depositorName);
+                });
+
+                if (totalMatched > 0) {
+                    if (remainingAmount > 0) {
+                        // ★ 원래 입금액 보존
+                        d.originalAmount = d.originalAmount || d.amount + totalMatched;
+                        d.preIssueMatchedAmount = (d.preIssueMatchedAmount || 0) + totalMatched;
+                        d.amount = remainingAmount;
+                        d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(totalMatched)}원 차감]`;
                     } else {
-                        // 전액 매칭: 입금건 삭제
+                        consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount });
                         const idx = deposits.indexOf(d);
                         if (idx !== -1) deposits.splice(idx, 1);
                     }
@@ -3612,9 +3886,10 @@
                     renderAll();
                     updateCurrentDate();
                     closeModal('depositDetailModal');
-                    const msg = excessAmount > 0
-                        ? `선발행에 ${formatNumber(matchAmount)}원 매칭 · 잔여 ${formatNumber(excessAmount)}원 입금건 유지`
-                        : `선발행 건에 ${formatNumber(matchAmount)}원 입금 매칭 완료`;
+                    const names = [...new Set(matchedNames)].join(', ');
+                    const msg = remainingAmount > 0
+                        ? `선발행 ${preTargetCbs.length}건에 ${formatNumber(totalMatched)}원 매칭 · 잔여 ${formatNumber(remainingAmount)}원 입금건 유지`
+                        : `선발행 ${preTargetCbs.length}건에 ${formatNumber(totalMatched)}원 입금 매칭 완료 (${names})`;
                     showToast(msg, 'success');
                     return;
                 }
@@ -5405,7 +5680,11 @@
             saveToStorage(); renderAll(); showToast('선발행 요청이 삭제되었습니다.', 'success');
         } else if (action === 'cycleStatus') {
             const d = deposits.find(r => r.id === parseInt(target));
-            if (d) { d.status = '완료'; saveToStorage(true); renderDeposits(); showToast('상태가 완료로 변경되었습니다.', 'success'); }
+            if (d) { d.status = '확인중'; saveToStorage(true); renderDeposits(); showToast('상태가 확인중으로 변경되었습니다.', 'success'); }
+        } else if (action === 'setStatus') {
+            const [idStr, newStatus] = target.split(':');
+            const d = deposits.find(r => r.id === parseInt(idStr));
+            if (d) { d.status = newStatus; saveToStorage(true); renderDeposits(); showToast(`상태: ${newStatus}`, 'success'); }
         }
     }
 
@@ -5525,6 +5804,65 @@
         saveToStorage(true);
         renderDeposits();
         showToast(`상태: ${d.status}`, 'success');
+    }
+
+    // ★ 상태 직접 선택 (우클릭 메뉴)
+    function showStatusContextMenu(event, id) {
+        event.preventDefault();
+        event.stopPropagation();
+        // 기존 메뉴 제거
+        const old = document.getElementById('statusContextMenu');
+        if (old) old.remove();
+
+        const d = deposits.find(r => r.id === id);
+        if (!d) return;
+
+        const statuses = ['확인중', '발행요청', '입금대기', '완료'];
+        const menu = document.createElement('div');
+        menu.id = 'statusContextMenu';
+        menu.style.cssText = 'position:fixed;z-index:3000;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px 0;min-width:140px;';
+        menu.style.left = event.clientX + 'px';
+        menu.style.top = event.clientY + 'px';
+
+        statuses.forEach(s => {
+            const item = document.createElement('div');
+            item.textContent = s;
+            item.style.cssText = 'padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500;transition:.1s;';
+            if (s === d.status) {
+                item.style.cssText += 'color:var(--navy);font-weight:700;background:var(--accent-dim);';
+            }
+            item.onmouseenter = () => item.style.background = 'var(--bg-hover)';
+            item.onmouseleave = () => { if (s !== d.status) item.style.background = ''; };
+            item.onclick = () => {
+                menu.remove();
+                if (s === d.status) return;
+                // 완료 상태로 변경 또는 완료에서 변경 시 비밀번호 필요
+                if (d.status === '완료' || s === '완료') {
+                    openPasswordModal('setStatus', id + ':' + s, `상태를 "${s}"(으)로 변경하시겠습니까?`);
+                } else {
+                    d.status = s;
+                    saveToStorage(true);
+                    renderDeposits();
+                    showToast(`상태: ${s}`, 'success');
+                }
+            };
+            menu.appendChild(item);
+        });
+
+        document.body.appendChild(menu);
+
+        // 메뉴 화면 밖 방지
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+        if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+
+        // 바깥 클릭 시 닫기
+        setTimeout(() => {
+            document.addEventListener('click', function closeMenu() {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+            }, { once: true });
+        }, 0);
     }
 
     // ==================== CHANNEL / PAYMENT METHOD ====================
@@ -5688,7 +6026,7 @@
                 if (unpaidPre.length > 0) {
                     preIssueOpt.style.display = 'block';
                     const sel = document.getElementById('ddPreIssueTarget');
-                    sel.innerHTML = '<option value="">-- 선발행 건 선택 --</option>';
+                    sel.innerHTML = '';
                     unpaidPre.forEach(pre => {
                         const p = pre.partnerId ? getPartnerById(pre.partnerId) : null;
                         const pName = p ? p.name : pre.depositorName;
@@ -5696,8 +6034,9 @@
                         const paid = pp.reduce((s, x) => s + x.amount, 0);
                         const remain = pre.amount - paid;
                         const reqDate = pre.requestDate ? `[${pre.requestDate}] ` : '';
-                        sel.innerHTML += `<option value="${pre.id}">${reqDate}${pName} · ${formatNumber(pre.amount)}원 (잔액: ${formatNumber(remain)}원)</option>`;
+                        sel.innerHTML += `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;transition:.1s" onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background=''"><input type="checkbox" class="preIssueTargetCb" value="${pre.id}" onchange="updatePreIssueMatchInfo()" style="margin:0;accent-color:var(--navy)"><span style="flex:1">${reqDate}${pName} · ${formatNumber(pre.amount)}원 <span style="color:var(--text-sub)">(잔액: ${formatNumber(remain)}원)</span></span></label>`;
                     });
+                    document.getElementById('ddPreIssueMatchInfo').style.display = 'none';
                 } else {
                     preIssueOpt.style.display = 'none';
                 }
@@ -5715,28 +6054,58 @@
     function togglePreIssuePayment() {
         const checked = document.getElementById('ddIsPreIssuePayment').checked;
         const sel = document.getElementById('ddPreIssueTarget');
+        const info = document.getElementById('ddPreIssueMatchInfo');
         sel.style.display = checked ? 'block' : 'none';
+        if (!checked) { info.style.display = 'none'; }
         if (checked) {
             // 입금자명으로 자동 선택 시도
             const depositId = parseInt(document.getElementById('ddId').value);
             const dep = deposits.find(d => d.id === depositId);
             if (dep) {
-                const options = sel.querySelectorAll('option');
-                for (const opt of options) {
-                    if (!opt.value) continue;
-                    const pre = deposits.find(d => d.id === parseInt(opt.value));
+                const cbs = sel.querySelectorAll('.preIssueTargetCb');
+                cbs.forEach(cb => {
+                    const pre = deposits.find(d => d.id === parseInt(cb.value));
                     if (pre && pre.partnerId && dep.partnerId === pre.partnerId) {
-                        sel.value = opt.value; break;
-                    }
-                    if (pre && dep.depositorName) {
+                        cb.checked = true;
+                    } else if (pre && dep.depositorName) {
                         const pName = pre.depositorName || '';
                         if (dep.depositorName.includes(pName) || pName.includes(dep.depositorName)) {
-                            sel.value = opt.value; break;
+                            cb.checked = true;
                         }
                     }
-                }
+                });
+                updatePreIssueMatchInfo();
             }
         }
+    }
+
+    function updatePreIssueMatchInfo() {
+        const cbs = document.querySelectorAll('.preIssueTargetCb:checked');
+        const info = document.getElementById('ddPreIssueMatchInfo');
+        if (cbs.length === 0) { info.style.display = 'none'; return; }
+
+        const depositId = parseInt(document.getElementById('ddId').value);
+        const dep = deposits.find(d => d.id === depositId);
+        if (!dep) return;
+
+        let totalRemain = 0;
+        cbs.forEach(cb => {
+            const pre = deposits.find(d => d.id === parseInt(cb.value));
+            if (pre) {
+                const paid = (pre.partialPayments || []).reduce((s, x) => s + x.amount, 0);
+                totalRemain += (pre.amount - paid);
+            }
+        });
+
+        const depositAmt = dep.amount;
+        const matchAmt = Math.min(depositAmt, totalRemain);
+        const excess = depositAmt - totalRemain;
+
+        let html = `선택: ${cbs.length}건 · 총 잔액: ${formatNumber(totalRemain)}원 · 매칭금액: ${formatNumber(matchAmt)}원`;
+        if (excess > 0) html += ` · <span style="color:var(--amber)">초과분 ${formatNumber(excess)}원은 별도 입금건 유지</span>`;
+        else if (excess < 0) html += ` · <span style="color:var(--text-sub)">부분매칭 (잔액 ${formatNumber(-excess)}원 남음)</span>`;
+        info.innerHTML = html;
+        info.style.display = 'block';
     }
 
     function computeActionRequired(category, channel, paymentMethod, cardCompany) {
