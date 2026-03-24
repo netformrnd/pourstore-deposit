@@ -2962,15 +2962,12 @@
             d.amount = excessAmount;
             d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(matchAmount)}원 차감]`;
         } else {
-<<<<<<< HEAD
-            // 전액 매칭 → 입금건의 세금계산서 발행요청 해제 (선발행 건으로 통합)
+            // 전액 매칭 → 입금건 상태를 완료로 변경
+            d.status = '완료';
             if (d.actionRequired && d.actionRequired.includes('세금계산서')) {
                 d.actionRequired = '처리완료(선발행매칭)';
             }
-            // 중복업로드 방지용 기록
-=======
-            // 전액 매칭 → 입금건 삭제 (중복업로드 방지용 기록)
->>>>>>> d5c721888b904e7cbf9c6fd9330ff20aa3ceae9a
+            // 중복업로드 방지용 기록 후 삭제
             consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
             const idx = deposits.indexOf(d);
             if (idx !== -1) deposits.splice(idx, 1);
