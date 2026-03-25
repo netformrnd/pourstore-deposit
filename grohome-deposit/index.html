@@ -1267,6 +1267,14 @@
             if (d.isPreIssue && !d.date) {
                 d.status = '입금대기';
             }
+            // ★ 5만원 이하 미지정 건 → 자동 온라인 처리 (쇼핑몰 자동분류/선발행 제외)
+            if (!d.autoCategory && !d.isPreIssue && !d.category && d.amount <= 50000 && d.status === '확인중') {
+                d.category = '온라인';
+                d.status = '완료';
+                d.actionRequired = '처리완료(온라인)';
+                d.autoOnline = true;
+                migrated = true;
+            }
             // ★ 선발행 매칭된 입금건 상태 보정: actionRequired에 '선발행매칭'이 있으면 완료
             if (d.actionRequired === '처리완료(선발행매칭)' && d.status !== '완료') {
                 d.status = '완료';
@@ -1920,6 +1928,13 @@
             newDep.category = '무통장'; newDep.channel = '';
             newDep.actionRequired = '처리완료(카드사)'; newDep.status = '완료';
         }
+        // ★ 5만원 이하 자동 온라인 처리 (쇼핑몰 자동분류가 아닌 경우에만)
+        if (!newDep.autoCategory && newDep.amount <= 50000) {
+            newDep.category = '온라인';
+            newDep.status = '완료';
+            newDep.actionRequired = '처리완료(온라인)';
+            newDep.autoOnline = true; // 자동설정 표시 (미지정으로 되돌리기 가능)
+        }
         deposits.push(newDep);
         saveToStorage(true);
         renderAll();
@@ -2177,9 +2192,12 @@
             return;
         }
 
-        // 온라인 외 선택 시 autoCategory 해제
+        // 온라인 외 선택 시 autoCategory/autoOnline 해제
         if (d.autoCategory) {
             d.autoCategory = null;
+        }
+        if (d.autoOnline) {
+            d.autoOnline = false;
         }
         d.category = cat || '';
         // 처리사항/상태 자동 재계산
