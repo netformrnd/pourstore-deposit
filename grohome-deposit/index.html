@@ -1649,7 +1649,7 @@
             if (source) {
                 recordUpdateSource(source);
             } else if (depositChanged) {
-                const tabSourceMap = { taxInvoice: '계산서', deposits: '입금내역', cashReceipt: '현금영수증', partners: '거래처' };
+                const tabSourceMap = { taxInvoice: '계산서', deposits: '입금내역', partners: '거래처' };
                 recordUpdateSource(tabSourceMap[currentMainTab] || '입금내역');
             }
         } catch(e) {}
@@ -1717,7 +1717,7 @@
         document.getElementById('tab-' + tabName).classList.add('active');
         document.querySelectorAll('#mainTabNav button').forEach(btn => btn.classList.remove('active'));
         const btns = document.querySelectorAll('#mainTabNav button');
-        const tabMap = { taxInvoice: 0, deposits: 1, cashReceipt: 2, partners: 3 };
+        const tabMap = { taxInvoice: 0, deposits: 1, partners: 2 };
         if (tabMap[tabName] !== undefined) btns[tabMap[tabName]].classList.add('active');
         if (tabName === 'partners') renderPartners();
         if (tabName === 'taxInvoice') renderTaxInvoiceList();
