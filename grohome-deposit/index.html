@@ -116,7 +116,8 @@
         .badge-발행대기{background:rgba(27,42,74,.30);color:#fff}
         /* 구분 뱃지 - 네이비 톤 */
         .badge-철물점{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.25)}
-        .badge-무통장{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.25)}
+        .badge-온라인{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.25)}
+        .badge-개인발주{background:rgba(139,92,246,.12);color:#8b5cf6;border:1px solid rgba(139,92,246,.25)}
         .badge-카드사{background:rgba(27,42,74,.08);color:var(--navy);border:1px solid rgba(27,42,74,.10)}
         .row-issued{background:#FAFCFE!important}
         .row-issued td{opacity:.55}
@@ -259,6 +260,7 @@
     <div class="tab-nav" id="mainTabNav">
         <button class="active" onclick="switchMainTab('taxInvoice')">계산서 발행</button>
         <button onclick="switchMainTab('deposits')">입금내역</button>
+        <button onclick="switchMainTab('cashReceipt')">현금영수증 발행</button>
         <button onclick="switchMainTab('partners')">거래처 관리</button>
     </div>
 
@@ -285,8 +287,9 @@
                     <input type="text" class="search-box" placeholder="검색..." id="depositSearch" oninput="renderDeposits()">
                     <select class="filter-select" id="depositCatFilter" onchange="renderDeposits()">
                         <option value="">전체 구분</option>
-                        <option value="무통장">무통장입금</option>
+                        <option value="온라인">온라인</option>
                         <option value="철물점">철물점</option>
+                        <option value="개인발주">개인발주</option>
                         <option value="미지정">미지정</option>
                     </select>
                     <select class="filter-select" id="statusFilter" onchange="renderDeposits()">
@@ -306,6 +309,7 @@
                     <button class="btn btn-sm active" onclick="setViewFilter('all')" style="font-size:12px;padding:5px 14px" data-vf="all">전체</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('철물점')" style="font-size:12px;padding:5px 14px" data-vf="철물점">철물점</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('shop')" style="font-size:12px;padding:5px 14px" data-vf="shop">쇼핑몰</button>
+                    <button class="btn btn-sm btn-outline" onclick="setViewFilter('개인발주')" style="font-size:12px;padding:5px 14px" data-vf="개인발주">개인발주</button>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center">
                     <button class="auto-cat-toggle" id="autoCatMergedBtn" onclick="toggleMergedAutoCategoryList()">쇼핑몰 매출입금</button>
@@ -630,7 +634,8 @@
                     <select id="ddCategory" class="filter-select" style="width:100%;padding:10px 12px;font-size:.9rem" onchange="onCategoryChange()">
                         <option value="">미지정</option>
                         <option value="철물점">철물점</option>
-                        <option value="무통장">무통장입금</option>
+                        <option value="온라인">온라인</option>
+                        <option value="개인발주">개인발주</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -1114,7 +1119,7 @@
     let nextTaxReqId = 1;
     let currentSort = { field: 'date', dir: 'desc' };
     let currentMonthFilter = 'all';
-    let currentViewFilter = 'all'; // 'all', '철물점', 'shop'
+    let currentViewFilter = 'all'; // 'all', '철물점', 'shop', '개인발주'
     let selectedMatchIds = [];  // 매칭 모달에서 선택된 입금건 IDs
     let pendingBizCertBlob = null;      // 저장 대기 중인 압축 Blob
     let pendingBizCertDataUrl = null;   // 미리보기/OCR용 DataURL
@@ -1649,7 +1654,7 @@
             if (source) {
                 recordUpdateSource(source);
             } else if (depositChanged) {
-                const tabSourceMap = { taxInvoice: '계산서', deposits: '입금내역', partners: '거래처' };
+                const tabSourceMap = { taxInvoice: '계산서', deposits: '입금내역', cashReceipt: '현금영수증', partners: '거래처' };
                 recordUpdateSource(tabSourceMap[currentMainTab] || '입금내역');
             }
         } catch(e) {}
@@ -1717,7 +1722,7 @@
         document.getElementById('tab-' + tabName).classList.add('active');
         document.querySelectorAll('#mainTabNav button').forEach(btn => btn.classList.remove('active'));
         const btns = document.querySelectorAll('#mainTabNav button');
-        const tabMap = { taxInvoice: 0, deposits: 1, partners: 2 };
+        const tabMap = { taxInvoice: 0, deposits: 1, cashReceipt: 2, partners: 3 };
         if (tabMap[tabName] !== undefined) btns[tabMap[tabName]].classList.add('active');
         if (tabName === 'partners') renderPartners();
         if (tabName === 'taxInvoice') renderTaxInvoiceList();
@@ -1826,11 +1831,11 @@
                         dep.autoCategory = getAutoCategory(depositorName);
                     }
                     if (dep.autoCategory === 'online') {
-                        dep.category = '무통장'; dep.channel = '자사몰';
+                        dep.category = '온라인'; dep.channel = '자사몰';
                         dep.actionRequired = '처리완료(자사몰)'; dep.status = '완료';
                         autoCatCount++;
                     } else if (dep.autoCategory === 'card') {
-                        dep.category = '무통장'; dep.channel = '';
+                        dep.category = '온라인'; dep.channel = '';
                         dep.actionRequired = '처리완료(카드사)'; dep.status = '완료';
                         autoCatCount++;
                     }
@@ -1922,10 +1927,10 @@
         // 자동분류 체크
         newDep.autoCategory = getAutoCategory(name);
         if (newDep.autoCategory === 'online') {
-            newDep.category = '무통장'; newDep.channel = '자사몰';
+            newDep.category = '온라인'; newDep.channel = '자사몰';
             newDep.actionRequired = '처리완료(자사몰)'; newDep.status = '완료';
         } else if (newDep.autoCategory === 'card') {
-            newDep.category = '무통장'; newDep.channel = '';
+            newDep.category = '온라인'; newDep.channel = '';
             newDep.actionRequired = '처리완료(카드사)'; newDep.status = '완료';
         }
         // ★ 5만원 이하 자동 온라인 처리 (쇼핑몰 자동분류가 아닌 경우에만)
@@ -1991,11 +1996,12 @@
 
         tbody.innerHTML = filtered.map(d => {
             const partner = getPartnerById(d.partnerId);
-            const catVal = d.autoCategory === 'online' ? '온라인' : (d.category === '무통장' ? '온라인' : (d.category || ''));
-            const catBadge = `<select onchange="event.stopPropagation();quickSetCategory(${d.id},this.value)" onclick="event.stopPropagation()" style="padding:2px 4px;font-size:11px;font-weight:600;border:1px solid ${catVal === '철물점' ? 'rgba(27,42,74,.2)' : catVal === '온라인' ? 'rgba(37,99,235,.2)' : catVal === '무통장' ? 'rgba(27,42,74,.15)' : 'var(--border)'};border-radius:12px;background:${catVal === '철물점' ? 'rgba(27,42,74,.06)' : catVal === '온라인' ? 'rgba(37,99,235,.08)' : catVal === '무통장' ? 'rgba(27,42,74,.15)' : '#fff'};color:${catVal === '온라인' ? '#2563eb' : catVal ? 'var(--navy)' : 'var(--text-dim)'};cursor:pointer;font-family:inherit;outline:none;appearance:none;-webkit-appearance:none;text-align:center;min-width:56px">
+            const catVal = d.autoCategory === 'online' ? '온라인' : (d.category || '');
+            const catBadge = `<select onchange="event.stopPropagation();quickSetCategory(${d.id},this.value)" onclick="event.stopPropagation()" style="padding:2px 4px;font-size:11px;font-weight:600;border:1px solid ${catVal === '철물점' ? 'rgba(27,42,74,.2)' : catVal === '온라인' ? 'rgba(37,99,235,.2)' : catVal === '개인발주' ? 'rgba(139,92,246,.2)' : 'var(--border)'};border-radius:12px;background:${catVal === '철물점' ? 'rgba(27,42,74,.06)' : catVal === '온라인' ? 'rgba(37,99,235,.08)' : catVal === '개인발주' ? 'rgba(139,92,246,.08)' : '#fff'};color:${catVal === '온라인' ? '#2563eb' : catVal === '개인발주' ? '#8b5cf6' : catVal ? 'var(--navy)' : 'var(--text-dim)'};cursor:pointer;font-family:inherit;outline:none;appearance:none;-webkit-appearance:none;text-align:center;min-width:56px">
                 <option value="" ${!catVal ? 'selected' : ''}>미지정</option>
                 <option value="철물점" ${catVal === '철물점' ? 'selected' : ''}>철물점</option>
-                <option value="온라인" ${catVal === '온라인' || catVal === '무통장' ? 'selected' : ''}>온라인</option>
+                <option value="온라인" ${catVal === '온라인' ? 'selected' : ''}>온라인</option>
+                <option value="개인발주" ${catVal === '개인발주' ? 'selected' : ''}>개인발주</option>
             </select>`;
 
             // 거래처 표시 (추천매칭/확정/수기지정) - 모두 한 줄
@@ -2632,13 +2638,13 @@
         const prefix = formType;
         document.querySelectorAll('#' + prefix + 'PiCategoryButtons button').forEach(b => {
             b.classList.remove('active');
-            if ((cat === '철물점' && b.textContent.includes('철물점')) || (cat === '무통장' && b.textContent.includes('무통장'))) b.classList.add('active');
+            if ((cat === '철물점' && b.textContent.includes('철물점')) || (cat === '온라인' && b.textContent.includes('온라인'))) b.classList.add('active');
         });
         document.getElementById(prefix + 'PiCategory').value = cat;
         document.getElementById(prefix + 'PiConsignFields').style.display = cat === '철물점' ? 'block' : 'none';
-        document.getElementById(prefix + 'PiForeFields').style.display = cat === '무통장' ? 'block' : 'none';
-        // 무통장 채널 초기화
-        if (cat !== '무통장') {
+        document.getElementById(prefix + 'PiForeFields').style.display = (cat === '온라인' || cat === '개인발주') ? 'block' : 'none';
+        // 온라인/개인발주 채널 초기화
+        if (cat !== '온라인' && cat !== '개인발주') {
             document.getElementById(prefix + 'PiChannel').value = '';
             document.querySelectorAll('#' + prefix + 'PiChannelButtons button').forEach(b => b.classList.remove('active'));
         }
@@ -3612,7 +3618,7 @@
         items = items.filter(d => !hideIds.has(d.id));
 
         // 무통장/철물점 구분 필터 적용
-        if (taxCatFilter === '무통장') items = items.filter(d => d.category === '무통장');
+        if (taxCatFilter === '온라인') items = items.filter(d => d.category === '온라인');
         if (taxCatFilter === '철물점') items = items.filter(d => d.category === '철물점');
         // 상태 필터 적용
         const taxStatusFilter = document.getElementById('taxStatusSelect')?.value || 'all';
@@ -4013,13 +4019,13 @@
 
         wrapper.style.display = 'block';
         document.getElementById('consignFields').classList.toggle('hidden', cat !== '철물점');
-        document.getElementById('foreFields').classList.toggle('hidden', cat !== '무통장');
+        document.getElementById('foreFields').classList.toggle('hidden', cat !== '온라인' && cat !== '개인발주');
 
         if (cat === '철물점') {
             document.getElementById('consignInfoBox').textContent = '철물점: 거래명세서 첨부, 견적서 (선택)';
         }
 
-        if (cat === '무통장') {
+        if (cat === '온라인' || cat === '개인발주') {
             // 채널/결제 초기화
             document.querySelectorAll('#channelButtons button').forEach(b => b.classList.remove('active'));
             document.getElementById('paymentMethodRow').style.display = 'none';
@@ -4031,7 +4037,7 @@
             document.getElementById('channelResetBtn').style.display = 'none';
 
             // 기존 데이터 복원
-            if (d && d.category === '무통장') {
+            if (d && (d.category === '온라인' || d.category === '개인발주')) {
                 if (d.channel) selectChannel(d.channel, true);
                 if (d.paymentMethod) selectPaymentMethod(d.paymentMethod, true);
                 if (d.cardCompany) document.getElementById('ddCardCompany').value = d.cardCompany;
@@ -4158,7 +4164,7 @@
             d.actionRequired = '철물점 월말 합산발행';
             if (d.status !== '완료') d.status = (d.isPreIssue && !d.date) ? '입금대기' : '발행요청';
 
-        } else if (cat === '무통장') {
+        } else if (cat === '온라인' || cat === '개인발주') {
             const partnerId = document.getElementById('ddPartnerId').value;
             if (partnerId) d.partnerId = parseInt(partnerId);
 
@@ -5744,7 +5750,7 @@
         const reqTotal = taxRequests.filter(t => t.status !== '발행완료').reduce((s, t) => s + t.amount, 0);
         const matchedTotal = taxRequests.filter(t => ['매칭완료','발행대기','발행완료'].includes(t.status)).reduce((s, t) => s + t.amount, 0);
         const partialCount = taxRequests.filter(t => t.status === '부분매칭').length;
-        const unmatchedDepTotal = deposits.filter(d => d.category === '무통장' && !d.matchedRequestId).reduce((s, d) => s + d.amount, 0);
+        const unmatchedDepTotal = deposits.filter(d => d.category === '온라인' && !d.matchedRequestId).reduce((s, d) => s + d.amount, 0);
         document.getElementById('fs-reqTotal').textContent = formatNumber(reqTotal) + '원';
         document.getElementById('fs-matchedTotal').textContent = formatNumber(matchedTotal) + '원';
         document.getElementById('fs-partialCount').textContent = partialCount + '건';
@@ -5988,7 +5994,7 @@
             if (d) {
                 d.matchedRequestId = taxReqId;
                 if (!d.partnerId) d.partnerId = t.partnerId;
-                if (!d.category) d.category = '무통장';
+                if (!d.category) d.category = '온라인';
             }
         });
 
@@ -6090,6 +6096,7 @@
         let allDeps;
         if (currentViewFilter === 'shop') allDeps = [...shopDeps, ...onlineManual];
         else if (currentViewFilter === '철물점') allDeps = mainDeps.filter(d => d.category === '철물점');
+        else if (currentViewFilter === '개인발주') allDeps = mainDeps.filter(d => d.category === '개인발주');
         else allDeps = [...mainDeps, ...shopDeps];
         const monthMap = {};
         // 일반입금 + 쇼핑몰 매출 모두 포함
@@ -6373,8 +6380,8 @@
         if (action) {
             text.textContent = action;
             box.style.display = 'block';
-            // ★ 무통장>직접발주>계산서 또는 현금일 때 선발행입금 옵션 표시
-            if ((pm === '계산서' || pm === '현금') && ch === '직접발주' && cat === '무통장') {
+            // ★ 온라인/개인발주>직접발주>계산서 또는 현금일 때 선발행입금 옵션 표시
+            if ((pm === '계산서' || pm === '현금') && ch === '직접발주' && (cat === '온라인' || cat === '개인발주')) {
                 // 현재 입금건의 거래처 정보 가져오기
                 const currentDepId = parseInt(document.getElementById('ddId').value);
                 const currentDep = deposits.find(dd => dd.id === currentDepId);
@@ -6503,7 +6510,7 @@
 
     function computeActionRequired(category, channel, paymentMethod, cardCompany, amount) {
         if (category === '철물점') return '철물점 월말 합산발행';
-        if (category !== '무통장') return '';
+        if (category !== '온라인' && category !== '개인발주') return '';
         if (channel === '자사몰') {
             return '처리완료(자사몰)';
         }
@@ -6561,7 +6568,7 @@
         const d = deposits.find(r => r.id === depositId);
         if (!d) return;
         d.autoCategory = type;
-        d.category = '무통장';
+        d.category = '온라인';
         if (type === 'online') {
             d.channel = '자사몰';
             d.actionRequired = '처리완료(자사몰)';
@@ -7191,9 +7198,9 @@
         const tr1 = nextTaxReqId++;
         const d1a = nextDepositId, d1b = nextDepositId+1, d1c = nextDepositId+2;
         deposits.push(
-            mkDep({ date:fmt(-8), depositorName:'그로홈', amount:1000000, memo:'1차입금', category:'무통장', partnerId:foreP, attachments:{transactionStatement:'명세서_포어1차.pdf'}, matchedRequestId:tr1, status:'발행완료', channel:'자사몰', paymentMethod:'카드', cardCompany:'BC카드', actionRequired:'카드입금확인필요(BC카드)' }),
-            mkDep({ date:fmt(-6), depositorName:'그로홈', amount:1000000, memo:'2차입금', category:'무통장', partnerId:foreP, attachments:{transactionStatement:'명세서_포어2차.pdf'}, matchedRequestId:tr1, status:'발행완료', channel:'자사몰', paymentMethod:'계좌이체', actionRequired:'처리완료(자사몰)' }),
-            mkDep({ date:fmt(-4), depositorName:'그로홈', amount:1000000, memo:'3차입금', category:'무통장', partnerId:foreP, attachments:{transactionStatement:'명세서_포어3차.pdf'}, matchedRequestId:tr1, status:'발행요청', channel:'직접발주', paymentMethod:'현금', actionRequired:'현금영수증 발급필요' })
+            mkDep({ date:fmt(-8), depositorName:'그로홈', amount:1000000, memo:'1차입금', category:'온라인', partnerId:foreP, attachments:{transactionStatement:'명세서_포어1차.pdf'}, matchedRequestId:tr1, status:'발행완료', channel:'자사몰', paymentMethod:'카드', cardCompany:'BC카드', actionRequired:'카드입금확인필요(BC카드)' }),
+            mkDep({ date:fmt(-6), depositorName:'그로홈', amount:1000000, memo:'2차입금', category:'온라인', partnerId:foreP, attachments:{transactionStatement:'명세서_포어2차.pdf'}, matchedRequestId:tr1, status:'발행완료', channel:'자사몰', paymentMethod:'계좌이체', actionRequired:'처리완료(자사몰)' }),
+            mkDep({ date:fmt(-4), depositorName:'그로홈', amount:1000000, memo:'3차입금', category:'온라인', partnerId:foreP, attachments:{transactionStatement:'명세서_포어3차.pdf'}, matchedRequestId:tr1, status:'발행요청', channel:'직접발주', paymentMethod:'현금', actionRequired:'현금영수증 발급필요' })
         );
         taxRequests.push({ id:tr1, partnerId:foreP, amount:3000000, requestDate:fmt(-10), attachmentName:'세금계산서_300만.pdf', matchedDepositIds:[d1a,d1b,d1c], matchedTotal:3000000, status:'매칭완료', issueDate:null, note:'3건 분할입금', createdAt:new Date().toISOString() });
 
@@ -7201,8 +7208,8 @@
         const tr2 = nextTaxReqId++;
         const d2a = nextDepositId, d2b = nextDepositId+1;
         deposits.push(
-            mkDep({ date:fmt(-5), depositorName:'그로홈', amount:2000000, memo:'대금1', category:'무통장', partnerId:foreP, attachments:{transactionStatement:'명세서_대금1.pdf'}, matchedRequestId:tr2, status:'발행요청', channel:'직접발주', paymentMethod:'계산서', actionRequired:'세금계산서 발행필요' }),
-            mkDep({ date:fmt(-3), depositorName:'그로홈입금', amount:1000000, memo:'대금2', category:'무통장', partnerId:foreP, attachments:{}, matchedRequestId:tr2, status:'입금완료', channel:'직접발주', paymentMethod:'카드', cardCompany:'국민', actionRequired:'처리완료(카드입금)' })
+            mkDep({ date:fmt(-5), depositorName:'그로홈', amount:2000000, memo:'대금1', category:'온라인', partnerId:foreP, attachments:{transactionStatement:'명세서_대금1.pdf'}, matchedRequestId:tr2, status:'발행요청', channel:'직접발주', paymentMethod:'계산서', actionRequired:'세금계산서 발행필요' }),
+            mkDep({ date:fmt(-3), depositorName:'그로홈입금', amount:1000000, memo:'대금2', category:'온라인', partnerId:foreP, attachments:{}, matchedRequestId:tr2, status:'입금완료', channel:'직접발주', paymentMethod:'카드', cardCompany:'국민', actionRequired:'처리완료(카드입금)' })
         );
         taxRequests.push({ id:tr2, partnerId:foreP, amount:5000000, requestDate:fmt(-7), attachmentName:'', matchedDepositIds:[d2a,d2b], matchedTotal:3000000, status:'부분매칭', issueDate:null, note:'추가 입금 대기', createdAt:new Date().toISOString() });
 
@@ -7213,13 +7220,13 @@
         // === 시나리오 4: 발행완료 (200만) ===
         const tr4 = nextTaxReqId++;
         const d4 = nextDepositId;
-        deposits.push(mkDep({ date:fmt(-14), depositorName:'그로홈', amount:2000000, memo:'일시불', category:'무통장', partnerId:foreP, attachments:{transactionStatement:'명세서_완료건.pdf'}, matchedRequestId:tr4 }));
+        deposits.push(mkDep({ date:fmt(-14), depositorName:'그로홈', amount:2000000, memo:'일시불', category:'온라인', partnerId:foreP, attachments:{transactionStatement:'명세서_완료건.pdf'}, matchedRequestId:tr4 }));
         taxRequests.push({ id:tr4, partnerId:foreP, amount:2000000, requestDate:fmt(-15), attachmentName:'세금계산서_발행완료.pdf', matchedDepositIds:[d4], matchedTotal:2000000, status:'발행완료', issueDate:fmt(-12), note:'정상 발행', createdAt:new Date().toISOString() });
 
         // === 미매칭 무통장 입금 2건 ===
         deposits.push(
-            mkDep({ date:fmt(-1), depositorName:'그로홈결제', amount:450000, memo:'미매칭건', category:'무통장', partnerId:foreP }),
-            mkDep({ date:fmt(-2), depositorName:'그로홈입금3', amount:780000, memo:'', category:'무통장', partnerId:foreP })
+            mkDep({ date:fmt(-1), depositorName:'그로홈결제', amount:450000, memo:'미매칭건', category:'온라인', partnerId:foreP }),
+            mkDep({ date:fmt(-2), depositorName:'그로홈입금3', amount:780000, memo:'', category:'온라인', partnerId:foreP })
         );
 
         // === 철물점 입금 3건 ===
