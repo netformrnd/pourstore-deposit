@@ -707,7 +707,18 @@
                             <option>롯데</option><option>신한</option><option>하나</option><option>NH농협</option><option>기타</option>
                         </select>
                     </div>
-                    <!-- 현금 선택 시: 현금영수증 용도/신원확인 -->
+                    <!-- 현금 선택 시: 현금영수증 발행 요청 유무 -->
+                    <div id="cashReceiptRequestRow" style="display:none;background:rgba(27,42,74,.03);border:1px solid rgba(27,42,74,.08);border-radius:var(--radius);padding:10px 14px;margin-top:8px">
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <span style="font-size:12px;font-weight:600;color:var(--navy)">현금영수증 발행 요청</span>
+                            <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="radio" name="ddCashReceiptRequest" value="있음" checked onchange="toggleCashReceiptRequest()" style="margin:0"> 있음</label>
+                            <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="radio" name="ddCashReceiptRequest" value="없음" onchange="toggleCashReceiptRequest()" style="margin:0"> 없음</label>
+                        </div>
+                        <div id="cashReceiptNoRequestInfo" style="display:none;margin-top:6px;font-size:11px;color:#666;padding:6px 10px;background:rgba(27,42,74,.04);border-radius:4px">
+                            💡 현금영수증 발행 요청 없음 → 월말에 010-0000-0000 으로 일괄 매출 처리됩니다.
+                        </div>
+                    </div>
+                    <!-- 현금 선택 시: 현금영수증 용도/신원확인 (발행 요청 있을 때만 표시) -->
                     <div id="cashReceiptInfoRow" style="display:none;background:rgba(27,42,74,.03);border:1px solid rgba(27,42,74,.08);border-radius:var(--radius);padding:12px 14px;margin-top:8px">
                         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
                             <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
@@ -990,6 +1001,16 @@
                 <button class="btn btn-secondary" onclick="closeModal('depositConfirmModal')">닫기</button>
                 <button class="btn btn-primary" onclick="confirmDepositPayment()">입금 등록</button>
             </div>
+        </div>
+    </div>
+
+    <!-- 거래처 정보 팝업 모달 -->
+    <div class="modal-overlay" id="partnerInfoModal">
+        <div class="modal" style="max-width:520px">
+            <button class="modal-close" onclick="closeModal('partnerInfoModal')">✕</button>
+            <h2 style="font-size:17px">거래처 상세정보</h2>
+            <div id="partnerInfoModalContent" style="font-size:13px;line-height:1.9"></div>
+            <div id="partnerInfoModalActions" style="margin-top:12px;text-align:right"></div>
         </div>
     </div>
 
@@ -2514,10 +2535,16 @@
     // 모달 내 거래처 상세 보기
     function showIssuePartnerDetail(partnerId, type) {
         const p = getPartnerById(partnerId);
-        const panelId = type === 'tax' ? 'taxPartnerDetail' : 'cashPartnerDetail';
-        const contentId = type === 'tax' ? 'taxPartnerDetailContent' : 'cashPartnerDetailContent';
-        document.getElementById(contentId).innerHTML = buildPartnerDetailGrid(p);
-        document.getElementById(panelId).style.display = 'block';
+        const content = document.getElementById('partnerInfoModalContent');
+        const actions = document.getElementById('partnerInfoModalActions');
+        if (!p) {
+            content.innerHTML = '<span class="text-muted">거래처 정보 없음</span>';
+            actions.innerHTML = '';
+        } else {
+            content.innerHTML = buildPartnerDetailGrid(p);
+            actions.innerHTML = `<button class="btn btn-secondary btn-sm" onclick="closeModal('partnerInfoModal');switchMainTab('partners')" style="font-size:12px">거래처 관리에서 편집</button>`;
+        }
+        document.getElementById('partnerInfoModal').classList.add('active');
     }
 
     // 선발행 폼 토글
@@ -3723,12 +3750,15 @@
             const actions = isComplete
                 ? `<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'tax')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button></div>`
                 : `<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'tax')" style="padding:2px 8px">발행완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'tax')" style="padding:2px 8px">해제</button></div>`;
+            const supplyAmt = Math.round(d.amount / 1.1);
+            const vatAmt = d.amount - supplyAmt;
+            const amountDisplay = `<div style="line-height:1.4">${formatNumber(d.amount)}원<br><span style="font-size:10px;color:var(--text-sub)" title="공급가액 ${formatNumber(supplyAmt)}원 + 부가세 ${formatNumber(vatAmt)}원">공급 ${formatNumber(supplyAmt)} / 부가세 ${formatNumber(vatAmt)}</span></div>`;
             const deleteCell = `<span onclick="event.stopPropagation();deleteTaxInvoiceItem(${d.id},'tax',${isPreIssue})" style="cursor:pointer;color:#CBD5E1;font-size:1rem" title="삭제">✕</span>`;
             return `<tr>
                 <td class="text-sm">${issueDateDisplay}</td>
                 <td class="text-sm">${dateDisplay}</td>
                 <td>${d.depositorName}</td>
-                <td class="amount positive">${formatNumber(d.amount)}원</td>
+                <td class="amount positive">${amountDisplay}</td>
                 <td class="text-sm">${partnerName}</td>
                 <td class="text-sm">${bizNo}</td>
                 <td class="text-sm">${repName}</td>
@@ -4030,7 +4060,9 @@
             document.querySelectorAll('#channelButtons button').forEach(b => b.classList.remove('active'));
             document.getElementById('paymentMethodRow').style.display = 'none';
             document.getElementById('cardCompanyRow').style.display = 'none';
+            document.getElementById('cashReceiptRequestRow').style.display = 'none';
             document.getElementById('cashReceiptInfoRow').style.display = 'none';
+            document.getElementById('cashReceiptNoRequestInfo').style.display = 'none';
             document.getElementById('actionRequiredBox').style.display = 'none';
             document.getElementById('ddCardCompany').value = '';
             document.getElementById('ddCashIdValue').value = '';
@@ -4043,6 +4075,13 @@
                 if (d.cardCompany) document.getElementById('ddCardCompany').value = d.cardCompany;
                 // 현금영수증 정보 복원
                 if (d.paymentMethod === '현금') {
+                    // 현금영수증 발행 요청 유무 복원
+                    const reqVal = d.cashReceiptRequest || (d.cashReceiptIdValue === '010-0000-0000' ? '없음' : '있음');
+                    document.querySelectorAll('input[name="ddCashReceiptRequest"]').forEach(r => {
+                        r.checked = r.value === reqVal;
+                    });
+                    toggleCashReceiptRequest();
+
                     if (d.cashReceiptPurpose) {
                         document.querySelectorAll('input[name="ddCashPurpose"]').forEach(r => {
                             r.checked = r.value === d.cashReceiptPurpose;
@@ -4054,7 +4093,7 @@
                         });
                         toggleDdCashIdInput();
                     }
-                    if (d.cashReceiptIdValue) {
+                    if (d.cashReceiptIdValue && d.cashReceiptIdValue !== '010-0000-0000') {
                         document.getElementById('ddCashIdValue').value = d.cashReceiptIdValue;
                     }
                 }
@@ -4277,26 +4316,35 @@
 
             // 현금 결제 시 현금영수증 정보 저장
             if (d.paymentMethod === '현금') {
-                const cashPurpose = document.querySelector('input[name="ddCashPurpose"]:checked');
-                const cashIdType = document.querySelector('input[name="ddCashIdType"]:checked');
-                const cashIdValue = document.getElementById('ddCashIdValue').value.trim();
-                if (!cashIdValue) {
-                    showToast('현금영수증 발행을 위해 주민등록번호 또는 휴대폰번호를 입력해주세요.', 'error');
-                    return;
+                const cashReceiptRequest = document.querySelector('input[name="ddCashReceiptRequest"]:checked')?.value || '있음';
+                d.cashReceiptRequest = cashReceiptRequest;
+                if (cashReceiptRequest === '없음') {
+                    // 발행 요청 없음 → 010-0000-0000 으로 월말 일괄 처리
+                    d.cashReceiptPurpose = '소득공제';
+                    d.cashReceiptIdType = '휴대폰번호';
+                    d.cashReceiptIdValue = '010-0000-0000';
+                } else {
+                    const cashPurpose = document.querySelector('input[name="ddCashPurpose"]:checked');
+                    const cashIdType = document.querySelector('input[name="ddCashIdType"]:checked');
+                    const cashIdValue = document.getElementById('ddCashIdValue').value.trim();
+                    if (!cashIdValue) {
+                        showToast('현금영수증 발행을 위해 주민등록번호 또는 휴대폰번호를 입력해주세요.', 'error');
+                        return;
+                    }
+                    const digits = cashIdValue.replace(/[^0-9]/g, '');
+                    const idType = cashIdType ? cashIdType.value : '주민등록번호';
+                    if (idType === '주민등록번호' && digits.length !== 13) {
+                        showToast('주민등록번호 13자리를 정확히 입력해주세요.', 'error');
+                        return;
+                    }
+                    if (idType === '휴대폰번호' && (digits.length < 10 || digits.length > 11)) {
+                        showToast('휴대폰번호를 정확히 입력해주세요.', 'error');
+                        return;
+                    }
+                    d.cashReceiptPurpose = cashPurpose ? cashPurpose.value : '소득공제';
+                    d.cashReceiptIdType = idType;
+                    d.cashReceiptIdValue = cashIdValue;
                 }
-                const digits = cashIdValue.replace(/[^0-9]/g, '');
-                const idType = cashIdType ? cashIdType.value : '주민등록번호';
-                if (idType === '주민등록번호' && digits.length !== 13) {
-                    showToast('주민등록번호 13자리를 정확히 입력해주세요.', 'error');
-                    return;
-                }
-                if (idType === '휴대폰번호' && (digits.length < 10 || digits.length > 11)) {
-                    showToast('휴대폰번호를 정확히 입력해주세요.', 'error');
-                    return;
-                }
-                d.cashReceiptPurpose = cashPurpose ? cashPurpose.value : '소득공제';
-                d.cashReceiptIdType = idType;
-                d.cashReceiptIdValue = cashIdValue;
             }
 
             // 처리완료/카드입금확인 → 완료 상태 (추가 작업 없음)
@@ -6290,6 +6338,7 @@
             pmBtns.innerHTML = '';
             document.getElementById('cardCompanyRow').style.display = 'none';
             document.getElementById('ddCardCompany').value = '';
+            document.getElementById('cashReceiptRequestRow').style.display = 'none';
             document.getElementById('cashReceiptInfoRow').style.display = 'none';
             if (!restore) updateActionRequired();
         } else {
@@ -6314,7 +6363,9 @@
         document.getElementById('paymentMethodButtons').innerHTML = '';
         document.getElementById('cardCompanyRow').style.display = 'none';
         document.getElementById('ddCardCompany').value = '';
+        document.getElementById('cashReceiptRequestRow').style.display = 'none';
         document.getElementById('cashReceiptInfoRow').style.display = 'none';
+        document.getElementById('cashReceiptNoRequestInfo').style.display = 'none';
         document.getElementById('ddCashIdValue').value = '';
         document.getElementById('actionRequiredBox').style.display = 'none';
         document.getElementById('channelResetBtn').style.display = 'none';
@@ -6330,9 +6381,30 @@
         // 카드사 선택 표시
         document.getElementById('cardCompanyRow').style.display = pm === '카드' ? 'block' : 'none';
         if (pm !== '카드') document.getElementById('ddCardCompany').value = '';
-        // 현금 선택 시 현금영수증 정보 입력 표시
-        document.getElementById('cashReceiptInfoRow').style.display = pm === '현금' ? 'block' : 'none';
+        // 현금 선택 시 현금영수증 발행 요청 유무 표시
+        document.getElementById('cashReceiptRequestRow').style.display = pm === '현금' ? 'block' : 'none';
+        if (pm === '현금') {
+            if (!restore) {
+                document.querySelector('input[name="ddCashReceiptRequest"][value="있음"]').checked = true;
+                toggleCashReceiptRequest();
+            }
+        } else {
+            document.getElementById('cashReceiptInfoRow').style.display = 'none';
+            document.getElementById('cashReceiptNoRequestInfo').style.display = 'none';
+        }
         if (!restore) updateActionRequired();
+    }
+
+    // 현금영수증 발행 요청 유무 토글
+    function toggleCashReceiptRequest() {
+        const val = document.querySelector('input[name="ddCashReceiptRequest"]:checked')?.value;
+        if (val === '있음') {
+            document.getElementById('cashReceiptInfoRow').style.display = 'block';
+            document.getElementById('cashReceiptNoRequestInfo').style.display = 'none';
+        } else {
+            document.getElementById('cashReceiptInfoRow').style.display = 'none';
+            document.getElementById('cashReceiptNoRequestInfo').style.display = 'block';
+        }
     }
 
     // 현금영수증 정보 - 신원확인 토글 (디테일 모달용)
