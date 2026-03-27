@@ -1585,6 +1585,10 @@
                 lastDepositUpdateStr = data.lastDepositUpdate;
                 localStorage.setItem('gh_lastUpdated', lastDepositUpdateStr);
             }
+            if (data.lastUpdateSources) {
+                lastUpdateSources = data.lastUpdateSources;
+                try { localStorage.setItem('gh_updateSources', JSON.stringify(lastUpdateSources)); } catch(e) {}
+            }
             if (data.learnedOnlineNames) learnedOnlineNames = data.learnedOnlineNames;
             if (data.learnedCardNames) learnedCardNames = data.learnedCardNames;
             if (data.consumedDeposits) consumedDeposits = data.consumedDeposits;
@@ -1693,6 +1697,7 @@
                 learnedOnlineNames: learnedOnlineNames,
                 learnedCardNames: learnedCardNames,
                 consumedDeposits: clean(consumedDeposits),
+                lastUpdateSources: clean(lastUpdateSources),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             if (_depositChanged) {
