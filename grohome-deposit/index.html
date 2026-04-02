@@ -1795,9 +1795,24 @@
         // ★ 기존 매칭건 중 actionRequired가 안 바뀐 건도 정리
         let fixedAction = 0;
         deposits.forEach(d => {
+            if (d.isPreIssue) return;
             if (d.preIssueConsumed && d.actionRequired && d.actionRequired !== '처리완료(선발행매칭)' && !d.actionRequired.startsWith('처리완료')) {
                 d.actionRequired = '처리완료(선발행매칭)';
+                d.status = '완료';
                 fixedAction++;
+                return;
+            }
+            if (!d.preIssueConsumed && d.date && d.actionRequired && (d.actionRequired.includes('세금계산서') || d.actionRequired.includes('현금영수증')) && !d.actionRequired.startsWith('처리완료')) {
+                const isConsumed = consumedDeposits.some(c =>
+                    c.date === d.date && c.depositorName === d.depositorName &&
+                    (c.amount === d.amount || c.consumedAmount === d.amount || c.amount === (d.originalAmount || d.amount))
+                );
+                if (isConsumed) {
+                    d.actionRequired = '처리완료(선발행매칭)';
+                    d.status = '완료';
+                    d.preIssueConsumed = true;
+                    fixedAction++;
+                }
             }
         });
         if (fixedAction > 0) {
