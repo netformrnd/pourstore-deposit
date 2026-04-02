@@ -3147,7 +3147,7 @@
             const pid = d.partnerId || 0;
             if (!partnerMap[pid]) {
                 const p = pid ? getPartnerById(pid) : null;
-                partnerMap[pid] = { pid, name: p ? p.name : '미지정', total: 0, paid: 0, count: 0, unpaidCount: 0, unpaidIds: [], extraDeposit: 0 };
+                partnerMap[pid] = { pid, name: p ? p.name : '미지정', total: 0, paid: 0, count: 0, unpaidCount: 0, unpaidIds: [] };
             }
             partnerMap[pid].total += d.amount;
             partnerMap[pid].count++;
@@ -3160,37 +3160,24 @@
             }
         });
 
-        // ★ 거래처별 미매칭 입금(초과입금) 집계: 선발행이 아닌 일반 입금 중 해당 거래처 건
-        deposits.filter(d => !d.isPreIssue && !d.autoCategory && d.partnerId).forEach(d => {
-            const pid = d.partnerId;
-            if (partnerMap[pid]) {
-                partnerMap[pid].extraDeposit += d.amount;
-            }
-        });
-
-        let entries = Object.values(partnerMap).sort((a, b) => {
-            const aRemain = a.total - a.paid;
-            const bRemain = b.total - b.paid;
-            if (bRemain !== aRemain) return bRemain - aRemain;
-            return b.extraDeposit - a.extraDeposit;
-        });
-        const fullPaidCount = entries.filter(e => (e.total - e.paid) <= 0 && e.extraDeposit <= 0).length;
+        let entries = Object.values(partnerMap).sort((a, b) => (b.total - b.paid) - (a.total - a.paid));
+        const fullPaidCount = entries.filter(e => (e.total - e.paid) <= 0).length;
         if (hideFullPaid) {
-            entries = entries.filter(e => (e.total - e.paid) > 0 || e.extraDeposit > 0);
+            entries = entries.filter(e => (e.total - e.paid) > 0);
         }
         const grandTotal = entries.reduce((s, e) => s + e.total, 0);
         const grandPaid = entries.reduce((s, e) => s + e.paid, 0);
         const grandRemain = grandTotal - grandPaid;
-        const grandExtra = entries.reduce((s, e) => s + e.extraDeposit, 0);
+        const grandOverpaid = entries.reduce((s, e) => e.paid > e.total ? s + (e.paid - e.total) : s, 0);
 
         let html = `<div style="background:#fafbfc;border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <span style="font-weight:700;font-size:14px;color:var(--navy)">거래처별 선발행 잔액</span>
+                <span style="font-weight:700;font-size:14px;color:var(--navy)">거래처별 선발행 현황</span>
                 <div style="display:flex;align-items:center;gap:12px">
                     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-sub);user-select:none">
                         <input type="checkbox" ${hideFullPaid ? 'checked' : ''} onchange="toggleHideFullPaid('${wrapId}')" style="accent-color:var(--navy);width:13px;height:13px;cursor:pointer"> 완납 숨기기${fullPaidCount > 0 ? ' (' + fullPaidCount + '건)' : ''}
                     </label>
-                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건 · 잔액합계 <b style="color:${grandRemain > 0 ? '#e53e3e' : 'var(--navy)'}">${formatNumber(grandRemain)}원</b>${grandExtra > 0 ? ` · 초과입금 <b style="color:#2b6cb0">+${formatNumber(grandExtra)}원</b>` : ''}</span>
+                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건${grandRemain > 0 ? ` · 미수금 <b style="color:#e53e3e">${formatNumber(grandRemain)}원</b>` : ''}${grandOverpaid > 0 ? ` · 초과입금 <b style="color:#2b6cb0">+${formatNumber(grandOverpaid)}원</b>` : ''}</span>
                 </div>
             </div>
             <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
@@ -3200,7 +3187,7 @@
                 <th style="padding:6px 10px;text-align:center;font-weight:600;border-bottom:1px solid var(--border)">건수</th>
                 <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">선발행 총액</th>
                 <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">입금액</th>
-                <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">잔액</th>
+                <th style="padding:6px 10px;text-align:right;font-weight:600;border-bottom:1px solid var(--border)">미수금</th>
                 <th style="padding:6px 10px;text-align:center;font-weight:600;border-bottom:1px solid var(--border)">진행률</th>
             </tr></thead><tbody>`;
 
@@ -3215,38 +3202,33 @@
             const isOverpaid = e.paid > e.total;
             const overpaidAmt = isOverpaid ? e.paid - e.total : 0;
             const hasRemain = remain > 0 && !isOverpaid;
-            const hasExtra = e.extraDeposit > 0;
 
-            // ★ 행 스타일
-            const rowStyle = isFullPaid && !isOverpaid && !hasExtra ? 'opacity:.55;cursor:pointer' : isOverpaid ? 'cursor:pointer;background:rgba(220,38,38,.04)' : 'cursor:pointer';
+            // 행 스타일
+            const rowStyle = isFullPaid && !isOverpaid ? 'opacity:.55;cursor:pointer' : isOverpaid ? 'cursor:pointer;background:rgba(220,38,38,.04)' : 'cursor:pointer';
 
             let remainDisplay;
             if (isOverpaid) {
-                remainDisplay = `<span style="color:#dc2626;font-weight:700">과입금 +${formatNumber(overpaidAmt)}원</span>`;
+                remainDisplay = `<span style="color:#2b6cb0;font-weight:700">초과입금 +${formatNumber(overpaidAmt)}원</span>`;
             } else if (isFullPaid) {
                 remainDisplay = '완납';
             } else {
                 remainDisplay = `<span style="color:#e53e3e;font-weight:700">${formatNumber(remain)}원</span>`;
             }
 
-            // ★ 뱃지: 잔액 or 초과입금 금액 표시
+            // ★ 뱃지: 미수금 or 초과입금 금액 표시
             let nameBadge = '';
             if (isOverpaid) {
-                nameBadge = ' <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:#fef2f2;color:#dc2626;font-weight:700">과입금</span>';
+                nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#ebf8ff;color:#2b6cb0;font-weight:700;border:1px solid #bee3f8">초과 +${formatNumber(overpaidAmt)}원</span>`;
             } else if (hasRemain) {
-                nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fff5f5;color:#e53e3e;font-weight:700;border:1px solid #feb2b2">잔액 ${formatNumber(remain)}원</span>`;
-            }
-            // ★ 초과입금(미매칭 입금) 뱃지 — 선발행 외 추가 입금이 있는 경우
-            if (hasExtra) {
-                nameBadge += ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#ebf8ff;color:#2b6cb0;font-weight:700;border:1px solid #bee3f8">초과입금 +${formatNumber(e.extraDeposit)}원</span>`;
+                nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fff5f5;color:#e53e3e;font-weight:700;border:1px solid #feb2b2">미수금 ${formatNumber(remain)}원</span>`;
             }
 
             html += `<tr style="${rowStyle}" onclick="toggleBalancePaymentHistory('${wrapId}',${e.pid},'${tabType}')" title="클릭하여 입금 내역 보기">
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);font-weight:${isFullPaid && !isOverpaid && !hasExtra ? '400' : '600'}">${e.name}${nameBadge} <span style="font-size:10px;color:var(--navy)">▸</span></td>
+                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);font-weight:${isFullPaid && !isOverpaid ? '400' : '600'}">${e.name}${nameBadge} <span style="font-size:10px;color:var(--navy)">▸</span></td>
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">${e.count}건${e.unpaidCount > 0 ? ` <span style="color:var(--navy);font-size:11px">(미입금 ${e.unpaidCount})</span>` : ''}</td>
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right">${formatNumber(e.total)}원</td>
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;color:${isOverpaid ? '#dc2626' : 'var(--navy)'}">${formatNumber(e.paid)}원</td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;font-weight:700;color:${isOverpaid ? '#dc2626' : isFullPaid ? 'var(--text-sub)' : '#e53e3e'}">${remainDisplay}</td>
+                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;font-weight:700;color:${isOverpaid ? '#2b6cb0' : isFullPaid ? 'var(--text-sub)' : '#e53e3e'}">${remainDisplay}</td>
                 <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">
                     <div style="display:flex;align-items:center;gap:6px;justify-content:center">
                         <div style="width:60px;height:5px;background:rgba(27,42,74,.08);border-radius:3px;overflow:hidden"><div style="height:100%;background:${isOverpaid ? '#dc2626' : 'var(--navy)'};width:${Math.min(pct, 100)}%;border-radius:3px"></div></div>
