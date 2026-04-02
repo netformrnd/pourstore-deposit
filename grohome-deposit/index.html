@@ -1791,6 +1791,19 @@
             console.log(`[마이그레이션] consumedDeposits에서 ${restored}건 복원 완료`);
             saveToStorage(true);
         }
+
+        // ★ 기존 매칭건 중 actionRequired가 안 바뀐 건도 정리
+        let fixedAction = 0;
+        deposits.forEach(d => {
+            if (d.preIssueConsumed && d.actionRequired && d.actionRequired !== '처리완료(선발행매칭)' && !d.actionRequired.startsWith('처리완료')) {
+                d.actionRequired = '처리완료(선발행매칭)';
+                fixedAction++;
+            }
+        });
+        if (fixedAction > 0) {
+            console.log(`[마이그레이션] 매칭 입금건 actionRequired 정리 ${fixedAction}건`);
+            saveToStorage(true);
+        }
     }
 
     // ==================== TAB MANAGEMENT ====================
@@ -2874,6 +2887,7 @@
                         // 잔여금 전액 소진 → 완료 처리 (목록 유지)
                         consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount || bd.amount, consumedAmount: bd.amount });
                         bd.status = '완료'; bd.preIssueConsumed = true;
+                        bd.actionRequired = '처리완료(선발행매칭)';
                     } else {
                         // 일부만 적용 → 잔여금 갱신
                         bd.preIssueMatchedAmount += applyAmount;
@@ -3103,6 +3117,7 @@
             // 중복업로드 방지용 기록 — 완료 처리 (목록 유지)
             consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
             d.status = '완료'; d.preIssueConsumed = true;
+            d.actionRequired = '처리완료(선발행매칭)';
         }
 
         saveToStorage(true);
@@ -3174,6 +3189,7 @@
                 usedIds.add(exactMatch.id);
                 consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
                 exactMatch.status = '완료'; exactMatch.preIssueConsumed = true;
+                exactMatch.actionRequired = '처리완료(선발행매칭)';
                 matched++;
                 return;
             }
@@ -3190,6 +3206,7 @@
                     usedIds.add(nd.id);
                     consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount });
                     nd.status = '완료'; nd.preIssueConsumed = true;
+                    nd.actionRequired = '처리완료(선발행매칭)';
                     partialMatched = true;
                 } else if (runningRemain > 0) {
                     // ★ 입금액 > 잔액: 잔액만큼만 매칭, 초과분은 입금건에 남김
@@ -4425,6 +4442,7 @@
                     } else {
                         consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
                         d.status = '완료'; d.preIssueConsumed = true;
+                        d.actionRequired = '처리완료(선발행매칭)';
                     }
                     // ★ 선발행 매칭은 즉시 Firestore 저장 (디바운스 시 onSnapshot 경쟁 조건 방지)
                     if (saveTimer) clearTimeout(saveTimer);
