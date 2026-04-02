@@ -3239,14 +3239,32 @@
         const grandPaid = entries.reduce((s, e) => s + e.paid, 0);
         const grandRemain = grandTotal - grandPaid;
 
-        let html = `<div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        // ★ 미수금 거래처 수 계산
+        const unpaidEntries = entries.filter(e => (e.total - e.paid) > 0);
+        const unpaidPartnerCount = unpaidEntries.length;
+
+        let html = `<div style="background:var(--bg-elevated);border:1px solid ${grandRemain > 0 ? '#e53e3e' : 'var(--border)'};border-radius:var(--radius-lg);padding:14px 16px;${grandRemain > 0 ? 'box-shadow:0 0 0 1px rgba(229,62,62,.15)' : ''}">`;
+
+        // ★ 미수금 알림 배너 (잔액이 있을 때만)
+        if (grandRemain > 0) {
+            html += `<div style="background:linear-gradient(135deg,#fff5f5,#fed7d7);border:1px solid #feb2b2;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
+                <div style="width:36px;height:36px;border-radius:50%;background:#e53e3e;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                    <span style="color:#fff;font-size:18px;font-weight:700">!</span>
+                </div>
+                <div style="flex:1">
+                    <div style="font-size:13px;font-weight:700;color:#c53030;margin-bottom:2px">미수금 ${unpaidPartnerCount}개 거래처 · 총 ${formatNumber(grandRemain)}원</div>
+                    <div style="font-size:11px;color:#9b2c2c">계산서 발행 후 아직 입금되지 않은 금액입니다. 거래처를 클릭하면 상세 내역을 확인할 수 있습니다.</div>
+                </div>
+            </div>`;
+        }
+
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                 <span style="font-weight:700;font-size:14px;color:var(--navy)">거래처별 선발행 잔액</span>
                 <div style="display:flex;align-items:center;gap:12px">
                     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-sub);user-select:none">
                         <input type="checkbox" ${hideFullPaid ? 'checked' : ''} onchange="toggleHideFullPaid('${wrapId}')" style="accent-color:var(--navy);width:13px;height:13px;cursor:pointer"> 완납 숨기기${fullPaidCount > 0 ? ' (' + fullPaidCount + '건)' : ''}
                     </label>
-                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건 · 잔액합계 <b style="color:var(--navy)">${formatNumber(grandRemain)}원</b></span>
+                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건 · 잔액합계 <b style="color:${grandRemain > 0 ? '#e53e3e' : 'var(--navy)'}">${formatNumber(grandRemain)}원</b></span>
                 </div>
             </div>
             <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
@@ -3270,25 +3288,58 @@
             const isFullPaid = remain <= 0;
             const isOverpaid = e.paid > e.total;
             const overpaidAmt = isOverpaid ? e.paid - e.total : 0;
-            const rowStyle = isFullPaid && !isOverpaid ? 'opacity:.55;cursor:pointer' : isOverpaid ? 'cursor:pointer;background:rgba(220,38,38,.04)' : 'cursor:pointer';
+            const hasRemain = remain > 0 && !isOverpaid;
+
+            // ★ 미수금 거래처: 빨간 왼쪽 테두리 + 연한 빨간 배경
+            let rowStyle;
+            if (isOverpaid) {
+                rowStyle = 'cursor:pointer;background:rgba(220,38,38,.04)';
+            } else if (isFullPaid) {
+                rowStyle = 'opacity:.55;cursor:pointer';
+            } else if (pct === 0) {
+                // 입금 0%: 강한 빨간 강조
+                rowStyle = 'cursor:pointer;background:rgba(229,62,62,.08);border-left:3px solid #e53e3e';
+            } else {
+                // 부분 입금: 주황 강조
+                rowStyle = 'cursor:pointer;background:rgba(237,137,54,.06);border-left:3px solid #ed8936';
+            }
+
             let remainDisplay;
             if (isOverpaid) {
                 remainDisplay = `<span style="color:#dc2626;font-weight:700">과입금 +${formatNumber(overpaidAmt)}원</span>`;
             } else if (isFullPaid) {
-                remainDisplay = '완납';
+                remainDisplay = '<span style="color:#38a169">완납</span>';
             } else {
-                remainDisplay = formatNumber(remain) + '원';
+                remainDisplay = `<span style="color:#e53e3e;font-weight:700;font-size:14px">${formatNumber(remain)}원</span>`;
             }
+
+            // ★ 미수금 뱃지
+            let nameBadge = '';
+            if (isOverpaid) {
+                nameBadge = ' <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:#fef2f2;color:#dc2626;font-weight:700">과입금</span>';
+            } else if (hasRemain && pct === 0) {
+                nameBadge = ' <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fff5f5;color:#e53e3e;font-weight:700;border:1px solid #feb2b2">미입금</span>';
+            } else if (hasRemain) {
+                nameBadge = ' <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fffaf0;color:#c05621;font-weight:700;border:1px solid #fbd38d">잔액있음</span>';
+            }
+
+            // ★ 진행바 색상: 0%=빨강, 1~99%=주황, 100%=초록
+            let barColor;
+            if (isOverpaid) barColor = '#dc2626';
+            else if (pct >= 100) barColor = '#38a169';
+            else if (pct > 0) barColor = '#ed8936';
+            else barColor = '#e53e3e';
+
             html += `<tr style="${rowStyle}" onclick="toggleBalancePaymentHistory('${wrapId}',${e.pid},'${tabType}')" title="클릭하여 입금 내역 보기">
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);font-weight:${isFullPaid && !isOverpaid ? '400' : '600'}">${e.name}${isOverpaid ? ' <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:#fef2f2;color:#dc2626;font-weight:700">과입금</span>' : ''} <span style="font-size:10px;color:var(--navy)">▸</span></td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">${e.count}건${e.unpaidCount > 0 ? ` <span style="color:var(--navy);font-size:11px">(미입금 ${e.unpaidCount})</span>` : ''}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right">${formatNumber(e.total)}원</td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;color:${isOverpaid ? '#dc2626' : 'var(--navy)'}">${formatNumber(e.paid)}원</td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;font-weight:700;color:${isOverpaid ? '#dc2626' : isFullPaid ? 'var(--text-sub)' : 'var(--navy)'}">${remainDisplay}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);font-weight:${isFullPaid && !isOverpaid ? '400' : '600'}">${e.name}${nameBadge} <span style="font-size:10px;color:var(--navy)">▸</span></td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">${e.count}건${e.unpaidCount > 0 ? ` <span style="color:#e53e3e;font-size:11px;font-weight:600">(미입금 ${e.unpaidCount})</span>` : ''}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right">${formatNumber(e.total)}원</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right;color:${isOverpaid ? '#dc2626' : 'var(--navy)'}">${formatNumber(e.paid)}원</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:right">${remainDisplay}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(27,42,74,.06);text-align:center">
                     <div style="display:flex;align-items:center;gap:6px;justify-content:center">
-                        <div style="width:60px;height:5px;background:rgba(27,42,74,.08);border-radius:3px;overflow:hidden"><div style="height:100%;background:${isOverpaid ? '#dc2626' : 'var(--navy)'};width:${Math.min(pct, 100)}%;border-radius:3px"></div></div>
-                        <span style="font-size:11px;color:${isOverpaid ? '#dc2626' : 'var(--text-sub)'};min-width:32px">${pct}%</span>
+                        <div style="width:80px;height:8px;background:rgba(27,42,74,.08);border-radius:4px;overflow:hidden"><div style="height:100%;background:${barColor};width:${Math.min(pct, 100)}%;border-radius:4px;transition:width .3s"></div></div>
+                        <span style="font-size:11px;color:${hasRemain ? '#e53e3e' : isOverpaid ? '#dc2626' : '#38a169'};min-width:32px;font-weight:${hasRemain ? '700' : '400'}">${pct}%</span>
                     </div>
                 </td>
             </tr>`;
@@ -3325,9 +3376,13 @@
         if (!row) return;
         if (row.style.display !== 'none') { row.style.display = 'none'; return; }
 
-        // 해당 거래처의 선발행건 전체 조회
+        // ★ tabType에 맞는 actionTypes 필터 적용 (다른 탭 데이터 혼입 방지)
+        let actionFilter = null;
+        if (tabType === 'tax') actionFilter = ['세금계산서 발행필요', '세금계산서 발행완료'];
+        else if (tabType === 'cash') actionFilter = ['현금영수증 발급필요', '현금영수증 발급완료'];
         const items = deposits.filter(d =>
-            d.isPreIssue && (d.partnerId || 0) === partnerId
+            d.isPreIssue && (d.partnerId || 0) === partnerId &&
+            (!actionFilter || actionFilter.some(a => d.actionRequired === a))
         );
         if (items.length === 0) { row.style.display = 'none'; return; }
 
