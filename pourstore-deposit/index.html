@@ -1661,6 +1661,40 @@
         updateCurrentDate();
     }
 
+    // ★ 거래처별 선발행/입금 진단 (콘솔: debugBalance() 또는 debugBalance('엔트클린'))
+    window.debugBalance = function(partnerName) {
+        const preItems = deposits.filter(d => d.isPreIssue);
+        const partnerMap = {};
+        preItems.forEach(d => {
+            const pid = d.partnerId || 0;
+            const p = pid ? getPartnerById(pid) : null;
+            const name = p ? p.name : '미지정';
+            if (partnerName && !name.includes(partnerName)) return;
+            if (!partnerMap[pid]) partnerMap[pid] = { name, items: [] };
+            const pp = d.partialPayments || [];
+            const paidAmt = d.date ? d.amount : pp.reduce((s, x) => s + x.amount, 0);
+            partnerMap[pid].items.push({
+                id: d.id, 선발행금액: d.amount, 입금액: paidAmt,
+                미수금: d.amount - paidAmt, 상태: d.date ? '완납' : (paidAmt > 0 ? '부분입금' : '미입금'),
+                발행일: d.requestDate || d.issueDate || '-', actionRequired: d.actionRequired,
+                partialPayments: pp.map(p => ({ date: p.date, amount: p.amount, name: p.depositorName }))
+            });
+        });
+        Object.values(partnerMap).forEach(v => {
+            const total = v.items.reduce((s, i) => s + i.선발행금액, 0);
+            const paid = v.items.reduce((s, i) => s + i.입금액, 0);
+            const remain = total - paid;
+            console.group(`%c${v.name}%c  선발행 ${v.items.length}건 | 총액 ${total.toLocaleString()}원 | 입금 ${paid.toLocaleString()}원 | ${remain > 0 ? '미수금 ' + remain.toLocaleString() + '원' : remain < 0 ? '초과입금 +' + Math.abs(remain).toLocaleString() + '원' : '완납'}`,
+                'font-weight:bold;font-size:13px', 'font-weight:normal;color:#666');
+            console.table(v.items.map(i => ({ 선발행금액: i.선발행금액, 입금액: i.입금액, 미수금: i.미수금, 상태: i.상태, 발행일: i.발행일, 구분: i.actionRequired })));
+            v.items.filter(i => i.partialPayments.length > 0).forEach(i => {
+                console.log(`  ↳ ID ${i.id} 분할입금:`, i.partialPayments);
+            });
+            console.groupEnd();
+        });
+        if (Object.keys(partnerMap).length === 0) console.log('해당 거래처의 선발행 건이 없습니다.');
+    };
+
     function renderAll() {
         try { renderDeposits(); } catch(e) { console.error('renderDeposits:', e); }
         try { renderTaxInvoiceList(); } catch(e) { console.error('renderTaxInvoiceList:', e); }
