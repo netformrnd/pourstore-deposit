@@ -2936,10 +2936,10 @@
                     remaining -= applyAmount;
 
                     if (applyAmount >= bd.amount) {
-                        // 잔여금 전액 소진 → 입금건 삭제
+                        // 잔여금 전액 소진 → 완료 처리 (리스트 유지)
                         consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount || bd.amount, consumedAmount: bd.amount });
-                        const idx = deposits.indexOf(bd);
-                        if (idx !== -1) deposits.splice(idx, 1);
+                        bd.status = '완료';
+                        bd.preIssueConsumed = true;
                     } else {
                         // 일부만 적용 → 잔여금 갱신
                         bd.preIssueMatchedAmount += applyAmount;
@@ -3166,10 +3166,10 @@
             if (d.actionRequired && d.actionRequired.includes('세금계산서')) {
                 d.actionRequired = '처리완료(선발행매칭)';
             }
-            // 중복업로드 방지용 기록 후 삭제
+            // 중복업로드 방지용 기록 + 완료 처리 (리스트 유지)
             consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
-            const idx = deposits.indexOf(d);
-            if (idx !== -1) deposits.splice(idx, 1);
+            d.status = '완료';
+            d.preIssueConsumed = true;
         }
 
         saveToStorage(true);
@@ -3240,8 +3240,9 @@
                 pre.status = '완료';
                 usedIds.add(exactMatch.id);
                 consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
-                const idx = deposits.indexOf(exactMatch);
-                if (idx !== -1) deposits.splice(idx, 1);
+                // ★ 삭제하지 않고 완료 처리 (리스트에 유지)
+                exactMatch.status = '완료';
+                exactMatch.preIssueConsumed = true;
                 matched++;
                 return;
             }
@@ -3252,13 +3253,13 @@
             nameMatches.forEach(nd => {
                 if (usedIds.has(nd.id) || runningRemain <= 0) return;
                 if (nd.amount <= runningRemain) {
-                    // 입금액 ≤ 잔액: 전액 매칭, 입금건 삭제
+                    // 입금액 ≤ 잔액: 전액 매칭 → 삭제하지 않고 완료 처리
                     pre.partialPayments.push({ date: nd.date, amount: nd.amount, depositorName: nd.depositorName });
                     runningRemain -= nd.amount;
                     usedIds.add(nd.id);
                     consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount });
-                    const idx = deposits.indexOf(nd);
-                    if (idx !== -1) deposits.splice(idx, 1);
+                    nd.status = '완료';
+                    nd.preIssueConsumed = true;
                     partialMatched = true;
                 } else if (runningRemain > 0) {
                     // ★ 입금액 > 잔액: 잔액만큼만 매칭, 초과분은 입금건에 남김
@@ -4520,8 +4521,8 @@
                         d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(totalMatched)}원 차감]`;
                     } else {
                         consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
-                        const idx = deposits.indexOf(d);
-                        if (idx !== -1) deposits.splice(idx, 1);
+                        d.status = '완료';
+                        d.preIssueConsumed = true;
                     }
                     // ★ 선발행 매칭은 즉시 Firestore 저장 (디바운스 시 onSnapshot 경쟁 조건 방지)
                     if (saveTimer) clearTimeout(saveTimer);
