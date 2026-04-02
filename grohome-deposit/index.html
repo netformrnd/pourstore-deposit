@@ -305,11 +305,14 @@
                 </div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <div style="display:flex;gap:4px" id="viewFilterBtns">
+                <div style="display:flex;gap:4px;align-items:center" id="viewFilterBtns">
                     <button class="btn btn-sm active" onclick="setViewFilter('all')" style="font-size:12px;padding:5px 14px" data-vf="all">전체</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('철물점')" style="font-size:12px;padding:5px 14px" data-vf="철물점">철물점</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('shop')" style="font-size:12px;padding:5px 14px" data-vf="shop">쇼핑몰</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('개인발주')" style="font-size:12px;padding:5px 14px" data-vf="개인발주">개인발주</button>
+                    <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('tax')" style="font-size:12px;padding:5px 14px" data-af="tax">세금계산서</button>
+                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('cash')" style="font-size:12px;padding:5px 14px" data-af="cash">현금영수증</button>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center">
                     <button class="auto-cat-toggle" id="autoCatMergedBtn" onclick="toggleMergedAutoCategoryList()">쇼핑몰 매출입금</button>
@@ -436,6 +439,9 @@
 
             <!-- 검색 + 필터 -->
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;justify-content:flex-end">
+                <select id="taxMonthFilter" class="filter-select" onchange="taxMonthFilter=this.value;renderTaxInvoiceList()" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
+                    <option value="all">전체 월</option>
+                </select>
                 <input type="text" id="taxInvoiceSearch" class="search-box" placeholder="입금처 · 거래처 검색..." oninput="renderTaxInvoiceList()" style="width:200px;padding:5px 10px;font-size:12px">
                 <select id="taxStatusSelect" class="filter-select" onchange="renderTaxInvoiceList()" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
                     <option value="all">전체</option>
@@ -485,6 +491,14 @@
         <div class="tab-content" id="tab-cashReceipt">
             <!-- 거래처별 현금영수증 선발행 잔액 요약 -->
             <div id="cashBalanceSummary" style="display:none;margin-bottom:14px"></div>
+
+            <!-- 검색 + 필터 -->
+            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;justify-content:flex-end">
+                <select id="cashMonthFilterEl" class="filter-select" onchange="cashMonthFilter=this.value;renderCashReceiptList()" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
+                    <option value="all">전체 월</option>
+                </select>
+                <input type="text" id="cashReceiptSearch" class="search-box" placeholder="입금처 · 거래처 검색..." oninput="renderCashReceiptList()" style="width:200px;padding:5px 10px;font-size:12px">
+            </div>
 
             <div class="table-wrap">
                 <div class="table-scroll">
@@ -1141,6 +1155,9 @@
     let currentSort = { field: 'date', dir: 'desc' };
     let currentMonthFilter = 'all';
     let currentViewFilter = 'all'; // 'all', '철물점', 'shop', '개인발주'
+    let currentActionFilter = 'all'; // 'all', 'tax', 'cash'
+    let taxMonthFilter = 'all';
+    let cashMonthFilter = 'all';
     let selectedMatchIds = [];  // 매칭 모달에서 선택된 입금건 IDs
     let pendingBizCertBlob = null;      // 저장 대기 중인 압축 Blob
     let pendingBizCertDataUrl = null;   // 미리보기/OCR용 DataURL
@@ -2004,6 +2021,13 @@
         // ★ 월별 필터 (선발행 미입금건은 date가 없으므로 항상 표시)
         if (currentMonthFilter !== 'all') {
             filtered = filtered.filter(d => (d.isPreIssue && !d.date) || (d.date && d.date.startsWith(currentMonthFilter)));
+        }
+
+        // ★ 세금계산서/현금영수증 구분 필터
+        if (currentActionFilter === 'tax') {
+            filtered = filtered.filter(d => d.actionRequired === '세금계산서 발행필요' || d.actionRequired === '세금계산서 발행완료');
+        } else if (currentActionFilter === 'cash') {
+            filtered = filtered.filter(d => d.actionRequired === '현금영수증 발급필요' || d.actionRequired === '현금영수증 발급완료');
         }
 
         // Sort
@@ -3611,6 +3635,15 @@
         renderHwMonthlySummary();
         let items = deposits.filter(d => d.actionRequired === '세금계산서 발행필요' || d.actionRequired === '세금계산서 발행완료' || d.actionRequired === '철물점 월말 합산발행');
 
+        // ★ 월별 드롭다운 옵션 갱신 + 필터 적용
+        buildMonthOptions('taxMonthFilter', items, taxMonthFilter);
+        if (taxMonthFilter !== 'all') {
+            items = items.filter(d => {
+                const dt = d.requestDate || d.issueDate || d.date;
+                return dt && dt.startsWith(taxMonthFilter);
+            });
+        }
+
         // ★ 선발행 + 일반입금 중복 병합 (표시용 only)
         const hideIds = new Set();
         const mergeInfo = {};
@@ -3816,7 +3849,28 @@
     // 현금영수증 내역 렌더링 (거래처 상세정보 포함)
     function renderCashReceiptList() {
         renderCashBalanceSummary();
-        const items = deposits.filter(d => d.actionRequired === '현금영수증 발급필요' || d.actionRequired === '현금영수증 발급완료');
+        let items = deposits.filter(d => d.actionRequired === '현금영수증 발급필요' || d.actionRequired === '현금영수증 발급완료');
+
+        // ★ 월별 드롭다운 옵션 갱신 + 필터 적용
+        buildMonthOptions('cashMonthFilterEl', items, cashMonthFilter);
+        if (cashMonthFilter !== 'all') {
+            items = items.filter(d => {
+                const dt = d.requestDate || d.issueDate || d.date;
+                return dt && dt.startsWith(cashMonthFilter);
+            });
+        }
+
+        // ★ 검색 필터
+        const cashSearch = (document.getElementById('cashReceiptSearch')?.value || '').toLowerCase();
+        if (cashSearch) {
+            items = items.filter(d => {
+                const p = d.partnerId ? getPartnerById(d.partnerId) : null;
+                return d.depositorName.toLowerCase().includes(cashSearch) ||
+                    (p && p.name.toLowerCase().includes(cashSearch)) ||
+                    (p && p.bizNo && p.bizNo.includes(cashSearch));
+            });
+        }
+
         const tbody = document.getElementById('cashReceiptBody');
         const empty = document.getElementById('cashReceiptEmpty');
         const summary = document.getElementById('cashReceiptSummary');
@@ -6157,12 +6211,43 @@
 
     function setViewFilter(vf) {
         currentViewFilter = vf;
-        document.querySelectorAll('#viewFilterBtns button').forEach(btn => {
+        currentActionFilter = 'all';
+        document.querySelectorAll('#viewFilterBtns button[data-vf]').forEach(btn => {
             if (btn.dataset.vf === vf) { btn.classList.add('active'); btn.classList.remove('btn-outline'); }
             else { btn.classList.remove('active'); btn.classList.add('btn-outline'); }
         });
-        // 집계만 변경, 테이블은 항상 전체
+        document.querySelectorAll('#viewFilterBtns button[data-af]').forEach(btn => {
+            btn.classList.remove('active'); btn.classList.add('btn-outline');
+        });
         renderDeposits();
+    }
+
+    function setActionFilter(af) {
+        if (currentActionFilter === af) { af = 'all'; }
+        currentActionFilter = af;
+        currentViewFilter = 'all';
+        document.querySelectorAll('#viewFilterBtns button[data-vf]').forEach(btn => {
+            if (af === 'all' && btn.dataset.vf === 'all') { btn.classList.add('active'); btn.classList.remove('btn-outline'); }
+            else if (af !== 'all') { btn.classList.remove('active'); btn.classList.add('btn-outline'); }
+        });
+        document.querySelectorAll('#viewFilterBtns button[data-af]').forEach(btn => {
+            if (btn.dataset.af === af) { btn.classList.add('active'); btn.classList.remove('btn-outline'); }
+            else { btn.classList.remove('active'); btn.classList.add('btn-outline'); }
+        });
+        renderDeposits();
+    }
+
+    function buildMonthOptions(selectId, items, currentVal) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const months = new Set();
+        items.forEach(d => {
+            const dt = d.requestDate || d.issueDate || d.date;
+            if (dt && typeof dt === 'string' && dt.length >= 7) months.add(dt.substring(0, 7));
+        });
+        const sorted = [...months].sort().reverse();
+        const prev = currentVal || sel.value || 'all';
+        sel.innerHTML = '<option value="all">전체 월</option>' + sorted.map(m => `<option value="${m}"${m === prev ? ' selected' : ''}>${m.replace('-','년 ')}월</option>`).join('');
     }
 
     function updateMonthSummary(filtered) {
