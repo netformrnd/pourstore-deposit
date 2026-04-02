@@ -307,16 +307,20 @@
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                 <div style="display:flex;gap:4px;align-items:center" id="viewFilterBtns">
                     <button class="btn btn-sm active" onclick="setViewFilter('all')" style="font-size:12px;padding:5px 14px" data-vf="all">전체</button>
-                    <button class="btn btn-sm btn-outline" onclick="setViewFilter('철물점')" style="font-size:12px;padding:5px 14px" data-vf="철물점">철물점</button>
+                    <button class="btn btn-sm btn-outline" onclick="setViewFilter('포어')" style="font-size:12px;padding:5px 14px" data-vf="포어">포어스토어</button>
+                    <button class="btn btn-sm btn-outline" onclick="setViewFilter('위탁')" style="font-size:12px;padding:5px 14px" data-vf="위탁">위탁</button>
                     <button class="btn btn-sm btn-outline" onclick="setViewFilter('shop')" style="font-size:12px;padding:5px 14px" data-vf="shop">쇼핑몰</button>
-                    <button class="btn btn-sm btn-outline" onclick="setViewFilter('개인발주')" style="font-size:12px;padding:5px 14px" data-vf="개인발주">개인발주</button>
-                    <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
-                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('tax')" style="font-size:12px;padding:5px 14px" data-af="tax">세금계산서</button>
-                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('cash')" style="font-size:12px;padding:5px 14px" data-af="cash">현금영수증</button>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center">
+                    <select id="depositMonthDropdown" class="filter-select" onchange="setMonthFilter(this.value)" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
+                        <option value="all">전체 월</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('tax')" style="font-size:12px;padding:5px 14px" data-af="tax">세금계산서</button>
+                    <button class="btn btn-sm btn-outline" onclick="setActionFilter('cash')" style="font-size:12px;padding:5px 14px" data-af="cash">현금영수증</button>
+                    <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+                    <button id="bulkDeleteBtnTop" onclick="bulkDeleteDeposits()" class="btn btn-sm" style="display:none;font-size:12px;padding:5px 14px;border-color:#e53e3e;color:#e53e3e">선택 삭제</button>
                     <button class="auto-cat-toggle" id="autoCatMergedBtn" onclick="toggleMergedAutoCategoryList()">쇼핑몰 매출입금</button>
-                    <button class="btn btn-outline" onclick="downloadExcel()" style="border-color:var(--navy);color:var(--navy)">엑셀 다운로드</button>
+                    <button class="btn btn-outline" onclick="downloadExcel()" style="border-color:var(--accent);color:var(--accent)">엑셀 다운로드</button>
                 </div>
             </div>
 
@@ -2000,6 +2004,9 @@
 
         const hideCompleted = document.getElementById('hideCompleted')?.checked || false;
 
+        // ★ 입금내역 월별 드롭다운 옵션 갱신
+        buildMonthOptions('depositMonthDropdown', deposits.filter(d => !d.autoCategory), currentMonthFilter);
+
         let filtered = deposits.filter(d => {
             // ★ 자동분류(쇼핑몰) 건은 테이블에서 제외
             if (d.autoCategory) return false;
@@ -2210,6 +2217,11 @@
         const btn = document.getElementById('bulkDeleteBtn');
         btn.style.display = cnt > 0 ? 'inline-block' : 'none';
         btn.textContent = `삭제(${cnt})`;
+        const btnTop = document.getElementById('bulkDeleteBtnTop');
+        if (btnTop) {
+            btnTop.style.display = cnt > 0 ? 'inline-block' : 'none';
+            btnTop.textContent = `선택 삭제(${cnt})`;
+        }
     }
 
     function bulkDeleteDeposits() {
@@ -6221,6 +6233,8 @@
     // ==================== MONTH SUMMARY TABLE ====================
     function setMonthFilter(month) {
         currentMonthFilter = month;
+        const dd = document.getElementById('depositMonthDropdown');
+        if (dd) dd.value = month;
         renderDeposits();
     }
 
