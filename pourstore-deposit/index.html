@@ -2448,6 +2448,21 @@
     }
 
     // 발행완료 처리
+    // ★ 현금영수증 자진발급: 010-0000-1234 자동 입력 + 발급완료 처리
+    function setCashSelfReport(id) {
+        const d = deposits.find(r => r.id === id);
+        if (!d) return;
+        d.cashReceiptIdType = '휴대폰번호';
+        d.cashReceiptIdValue = '010-0000-1234';
+        d.cashReceiptPurpose = d.cashReceiptPurpose || '소득공제';
+        d.actionRequired = '현금영수증 발급완료';
+        d.status = '완료';
+        d.issueDate = d.issueDate || new Date().toISOString().split('T')[0];
+        saveToStorage(true);
+        renderCashReceiptList();
+        showToast('자진발급 처리 완료 (010-0000-1234)', 'success');
+    }
+
     function markIssued(id, type) {
         const d = deposits.find(r => r.id === id);
         if (!d) return;
@@ -4066,7 +4081,7 @@
             const issueDateDisplay = isComplete && d.issueDate ? `<span class="text-sm" style="color:var(--navy-light)">${d.issueDate}</span>` : (isComplete ? '<span class="text-muted text-sm">-</span>' : '');
             const actions = isComplete
                 ? `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><span class="text-muted text-sm">완료</span><button class="btn-xs btn-outline" onclick="revertIssued(${d.id},'cash')" style="padding:2px 8px;font-size:10px;color:var(--text-dim)">취소</button></div>`
-                : `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'cash')" style="padding:2px 8px">발급완료</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'cash')" style="padding:2px 8px">해제</button></div>`;
+                : `<div style="display:flex;gap:4px;align-items:center;white-space:nowrap;flex-wrap:wrap"><button class="btn-xs btn-success" onclick="markIssued(${d.id},'cash')" style="padding:2px 8px">발급완료</button><button class="btn-xs" onclick="setCashSelfReport(${d.id})" style="padding:2px 8px;border-color:#ed8936;color:#ed8936" title="자진발급 (010-0000-1234)">자진발급</button><button class="btn-xs btn-outline" onclick="cancelIssueRequest(${d.id},'cash')" style="padding:2px 8px">해제</button></div>`;
             return `<tr${isPreIssue && !isComplete ? ' style="background:rgba(27,42,74,.02)"' : ''}>
                 <td>${dateDisplay}</td>
                 <td>${d.depositorName}</td>
