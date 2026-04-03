@@ -287,6 +287,7 @@
                         <option value="">전체 구분</option>
                         <option value="위탁">위탁</option>
                         <option value="포어">포어스토어</option>
+                        <option value="자사몰">자사몰</option>
                         <option value="미지정">미지정</option>
                     </select>
                     <select class="filter-select" id="statusFilter" onchange="renderDeposits()">
@@ -673,6 +674,7 @@
                         <option value="">미지정</option>
                         <option value="위탁">위탁</option>
                         <option value="포어">포어스토어</option>
+                        <option value="자사몰">자사몰</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -2158,11 +2160,12 @@
         tbody.innerHTML = filtered.map(d => {
             const partner = getPartnerById(d.partnerId);
             const catVal = d.autoCategory === 'online' ? '온라인' : (d.category || '');
-            const catBadge = `<select onchange="event.stopPropagation();quickSetCategory(${d.id},this.value)" onclick="event.stopPropagation()" style="padding:2px 4px;font-size:11px;font-weight:600;border:1px solid ${catVal === '온라인' ? 'rgba(37,99,235,.2)' : catVal ? 'rgba(27,42,74,.2)' : 'var(--border)'};border-radius:12px;background:${catVal === '위탁' ? 'rgba(27,42,74,.06)' : catVal === '포어' ? 'rgba(27,42,74,.15)' : catVal === '온라인' ? 'rgba(37,99,235,.08)' : '#fff'};color:${catVal === '온라인' ? '#2563eb' : catVal ? 'var(--navy)' : 'var(--text-dim)'};cursor:pointer;font-family:inherit;outline:none;appearance:none;-webkit-appearance:none;text-align:center;min-width:56px">
+            const catBadge = `<select onchange="event.stopPropagation();quickSetCategory(${d.id},this.value)" onclick="event.stopPropagation()" style="padding:2px 4px;font-size:11px;font-weight:600;border:1px solid ${catVal === '온라인' || catVal === '자사몰' ? 'rgba(37,99,235,.2)' : catVal ? 'rgba(27,42,74,.2)' : 'var(--border)'};border-radius:12px;background:${catVal === '위탁' ? 'rgba(27,42,74,.06)' : catVal === '포어' ? 'rgba(27,42,74,.15)' : catVal === '온라인' || catVal === '자사몰' ? 'rgba(37,99,235,.08)' : '#fff'};color:${catVal === '온라인' || catVal === '자사몰' ? '#2563eb' : catVal ? 'var(--navy)' : 'var(--text-dim)'};cursor:pointer;font-family:inherit;outline:none;appearance:none;-webkit-appearance:none;text-align:center;min-width:56px">
                 <option value="" ${!catVal ? 'selected' : ''}>미지정</option>
                 <option value="포어" ${catVal === '포어' ? 'selected' : ''}>포어</option>
                 <option value="위탁" ${catVal === '위탁' ? 'selected' : ''}>위탁</option>
                 <option value="온라인" ${catVal === '온라인' ? 'selected' : ''}>온라인</option>
+                <option value="자사몰" ${catVal === '자사몰' ? 'selected' : ''}>자사몰</option>
             </select>`;
 
             // 거래처 표시 (추천매칭/확정/수기지정) - 모두 한 줄
@@ -2367,6 +2370,19 @@
             saveToStorage(true);
             renderAll();
             showToast(`"${d.depositorName}" → 쇼핑몰 매출로 분류 완료`, 'success');
+            return;
+        }
+
+        // ★ 자사몰 선택 → 완료 처리 (메인 테이블에 유지)
+        if (cat === '자사몰') {
+            d.autoCategory = null;
+            d.category = '자사몰';
+            d.channel = '자사몰';
+            d.status = '완료';
+            d.actionRequired = '처리완료(자사몰)';
+            saveToStorage(true);
+            renderAll();
+            showToast(`"${d.depositorName}" → 자사몰 분류 완료`, 'success');
             return;
         }
 
@@ -6936,6 +6952,7 @@
 
     function computeActionRequired(category, channel, paymentMethod, cardCompany) {
         if (category === '위탁') return '세금계산서 발행필요';
+        if (category === '자사몰') return '처리완료(자사몰)';
         if (category !== '포어') return '';
         if (channel === '자사몰') {
             return '처리완료(자사몰)';
