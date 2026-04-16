@@ -4568,6 +4568,13 @@
 
             d.actionRequired = computeActionRequired(d.category, d.channel, d.paymentMethod, d.cardCompany);
 
+            // ★ 선발행 간편 매칭 (하단 드롭다운)도 저장 버튼으로 처리
+            const quickPreId = parseInt(document.getElementById('ddQuickPreIssueTarget').value);
+            if (quickPreId) {
+                quickMatchPreIssue();
+                return;
+            }
+
             // ★ 선발행입금 체크 시: 해당 선발행 건에 분할입금 매칭 (다중 선택 지원)
             const isPrePayment = document.getElementById('ddIsPreIssuePayment').checked;
             const preTargetCbs = document.querySelectorAll('.preIssueTargetCb:checked');
