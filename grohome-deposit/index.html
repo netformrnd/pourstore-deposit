@@ -4352,6 +4352,13 @@
         d.orderNo = document.getElementById('ddOrderNo').value.trim();
         d.note = document.getElementById('ddNote').value.trim();
 
+        // ★ 선발행 간편 매칭 (하단 드롭다운)은 카테고리 무관하게 처리
+        const quickPreId = parseInt(document.getElementById('ddQuickPreIssueTarget').value);
+        if (quickPreId) {
+            quickMatchPreIssue();
+            return;
+        }
+
         // 카테고리: 드롭다운에서 가져옴 (미지정이면 빈 문자열)
         const cat = document.getElementById('ddCategory').value;
         d.category = cat;
