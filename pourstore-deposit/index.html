@@ -4507,6 +4507,13 @@
         d.orderNo = document.getElementById('ddOrderNo').value.trim();
         d.note = document.getElementById('ddNote').value.trim();
 
+        // ★ 선발행 간편 매칭 (하단 드롭다운)은 카테고리 무관하게 처리
+        const quickPreId = parseInt(document.getElementById('ddQuickPreIssueTarget').value);
+        if (quickPreId) {
+            quickMatchPreIssue();
+            return;
+        }
+
         // 카테고리: 드롭다운에서 가져옴 (미지정이면 빈 문자열)
         const cat = document.getElementById('ddCategory').value;
         d.category = cat;
@@ -4567,13 +4574,6 @@
             }
 
             d.actionRequired = computeActionRequired(d.category, d.channel, d.paymentMethod, d.cardCompany);
-
-            // ★ 선발행 간편 매칭 (하단 드롭다운)도 저장 버튼으로 처리
-            const quickPreId = parseInt(document.getElementById('ddQuickPreIssueTarget').value);
-            if (quickPreId) {
-                quickMatchPreIssue();
-                return;
-            }
 
             // ★ 선발행입금 체크 시: 해당 선발행 건에 분할입금 매칭 (다중 선택 지원)
             const isPrePayment = document.getElementById('ddIsPreIssuePayment').checked;
