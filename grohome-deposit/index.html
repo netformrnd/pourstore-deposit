@@ -1698,12 +1698,9 @@
                 lastDepositUpdateStr = new Date().toISOString();
                 localStorage.setItem('gh_lastUpdated', lastDepositUpdateStr);
             }
-            // 탭별 업데이트 시간 자동 기록
+            // 탭별 업데이트 시간 기록 (명시된 source가 있을 때만)
             if (source) {
                 recordUpdateSource(source);
-            } else if (depositChanged) {
-                const tabSourceMap = { taxInvoice: '계산서', deposits: '입금내역', cashReceipt: '현금영수증', partners: '거래처' };
-                recordUpdateSource(tabSourceMap[currentMainTab] || '입금내역');
             }
         } catch(e) {}
         // Firestore에 저장 (디바운스: 500ms)
@@ -1979,7 +1976,7 @@
             });
         }
 
-        saveToStorage(true);
+        saveToStorage(true, added > 0 ? '입금내역' : null);
         renderAll();
         let msg = '';
         if (added > 0) {
@@ -2055,7 +2052,7 @@
             newDep.autoOnline = true; // 자동설정 표시 (미지정으로 되돌리기 가능)
         }
         deposits.push(newDep);
-        saveToStorage(true);
+        saveToStorage(true, '입금내역');
         renderAll();
         closeModal('manualAddModal');
         showToast('입금건이 추가되었습니다.', 'success');
@@ -2462,7 +2459,7 @@
             }
         });
         if (added > 0) {
-            saveToStorage();
+            saveToStorage(false, '계산서');
             renderAll();
             renderTaxInvoiceList();
             showToast(`${added}건이 계산서 발행요청에 추가되었습니다.`, 'success');
@@ -2485,7 +2482,7 @@
             }
         });
         if (added > 0) {
-            saveToStorage();
+            saveToStorage(false, '현금영수증');
             renderAll();
             renderCashReceiptList();
             showToast(`${added}건이 현금영수증 발급요청에 추가되었습니다.`, 'success');
@@ -2504,7 +2501,7 @@
         d.actionRequired = '현금영수증 발급완료';
         d.status = '완료';
         d.issueDate = d.issueDate || new Date().toISOString().split('T')[0];
-        saveToStorage(true);
+        saveToStorage(true, '현금영수증');
         renderCashReceiptList();
         showToast('자진발급 처리 완료 (010-0000-1234)', 'success');
     }
@@ -2537,7 +2534,7 @@
         d.issueDate = dateVal;
         d.status = '완료';
         d.actionRequired = '세금계산서 발행완료';
-        saveToStorage();
+        saveToStorage(false, '계산서');
         closeModal('issueDateModal');
         renderAll();
         renderTaxInvoiceList();
@@ -2555,7 +2552,7 @@
         } else if (type === 'cash') {
             d.actionRequired = '현금영수증 발급필요';
         }
-        saveToStorage();
+        saveToStorage(false, type === 'tax' ? '계산서' : '현금영수증');
         renderAll();
         if (type === 'tax') renderTaxInvoiceList();
         else if (type === 'cash') renderCashReceiptList();
@@ -2584,7 +2581,7 @@
         d.issueDate = dateVal;
         d.status = '완료';
         d.actionRequired = '현금영수증 발급완료';
-        saveToStorage();
+        saveToStorage(false, '현금영수증');
         closeModal('cashReceiptIssueModal');
         renderAll();
         renderCashReceiptList();
@@ -2597,7 +2594,7 @@
         if (!d) return;
         d.status = '확인중';
         d.actionRequired = '';
-        saveToStorage();
+        saveToStorage(false, type === 'tax' ? '계산서' : '현금영수증');
         renderAll();
         if (type === 'tax') renderTaxInvoiceList();
         else renderCashReceiptList();
@@ -2619,7 +2616,7 @@
             d.actionRequired = '';
             showToast('계산서 발행이 취소되었습니다.', 'info');
         }
-        saveToStorage();
+        saveToStorage(false, type === 'tax' ? '계산서' : '현금영수증');
         renderAll();
         if (type === 'tax') renderTaxInvoiceList();
         else renderCashReceiptList();
@@ -2927,7 +2924,7 @@
             showToast(`선발행 요청이 등록되었습니다.${expectedDate ? ' (입금예정: ' + expectedDate + ')' : ''}`, 'success');
         }
 
-        saveToStorage(true);
+        saveToStorage(true, type === 'tax' ? '계산서' : '현금영수증');
         renderAll();
         if (type === 'tax') renderTaxInvoiceList();
         else renderCashReceiptList();
@@ -3135,7 +3132,7 @@
             d.actionRequired = '처리완료(선발행매칭)';
         }
 
-        saveToStorage(true);
+        saveToStorage(true, (pre.actionRequired || '').startsWith('현금영수증') ? '현금영수증' : '계산서');
         renderAll();
         closeModal('depositDetailModal');
         if (excessAmount > 0) {
@@ -3540,7 +3537,7 @@
         restorePreIssuePayments(d);
         const idx = deposits.indexOf(d);
         if (idx !== -1) deposits.splice(idx, 1);
-        saveToStorage(true);
+        saveToStorage(true, (d.actionRequired || '').startsWith('현금영수증') ? '현금영수증' : '계산서');
         renderAll();
         // 현재 탭이 계산서/현금영수증이면 해당 리스트도 새로고침
         const activeTab = document.querySelector('.tab-btn.active');
@@ -3574,7 +3571,7 @@
             d.status = '입금대기';  // 선발행 미입금으로 복원
         }
 
-        saveToStorage(true);
+        saveToStorage(true, (d.actionRequired || '').startsWith('현금영수증') ? '현금영수증' : '계산서');
         renderAll();
         // 현재 탭이 계산서/현금영수증이면 해당 리스트도 새로고침
         const activeTab = document.querySelector('.tab-btn.active');
@@ -4469,6 +4466,10 @@
                     // ★ 선발행 매칭은 즉시 Firestore 저장 (디바운스 시 onSnapshot 경쟁 조건 방지)
                     if (saveTimer) clearTimeout(saveTimer);
                     const clean = (obj) => JSON.parse(JSON.stringify(obj, (k, v) => v === undefined ? null : v));
+                    // 매칭된 첫 선발행 건의 actionRequired로 source 결정 (계산서/현금영수증)
+                    const _firstPre = preTargetCbs.length > 0 ? deposits.find(r => r.id === parseInt(preTargetCbs[0].value)) : null;
+                    const _matchSource = _firstPre && (_firstPre.actionRequired || '').startsWith('현금영수증') ? '현금영수증' : '계산서';
+                    recordUpdateSource(_matchSource);
                     try {
                         localStorage.setItem('gh_deposits', JSON.stringify(deposits));
                         localStorage.setItem('gh_partners', JSON.stringify(partners));
@@ -4483,6 +4484,7 @@
                         taxRequests: clean(taxRequests),
                         nextIds: { d: nextDepositId, p: nextPartnerId, t: nextTaxReqId },
                         lastDepositUpdate: lastDepositUpdateStr,
+                        lastUpdateSources: clean(lastUpdateSources),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     }, { merge: true }).then(() => {
                         console.log('☁️ 선발행 매칭 Firestore 즉시 저장 완료');
@@ -4554,7 +4556,10 @@
             if (estFile) d.attachments.estimate = estFile.name;
         }
 
-        saveToStorage(true);
+        const _ddSource = (d.actionRequired || '').startsWith('세금계산서') ? '계산서'
+                       : (d.actionRequired || '').startsWith('현금영수증') ? '현금영수증'
+                       : null;
+        saveToStorage(true, _ddSource);
         renderAll();
         closeModal('depositDetailModal');
 
