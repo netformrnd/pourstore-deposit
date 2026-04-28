@@ -440,7 +440,7 @@
                 </div>
                 <div class="form-row" style="margin-bottom:10px">
                     <div class="form-group" style="margin-bottom:0">
-                        <label style="font-size:13px">발행일자 <span class="required">*</span></label>
+                        <label style="font-size:13px">요청일자 <span class="required">*</span> <span style="cursor:help;color:var(--text-dim);font-size:11px" title="선발행을 요청한 날짜입니다. 실제 발행일은 발행 처리 시 별도로 입력합니다">ⓘ</span></label>
                         <input type="date" id="taxPiIssueDate" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;width:100%;font-family:inherit">
                     </div>
                     <div class="form-group" style="margin-bottom:0">
@@ -1694,11 +1694,14 @@
         if (!pre.partialPayments) pre.partialPayments = [];
 
         if (sourceDepositId != null) {
+            // 입금건 원래 금액 추정
             const sd = deposits.find(d => d.id === sourceDepositId && !d.isPreIssue);
             const sourceOriginal = sd
                 ? (sd.originalAmount || ((sd.amount || 0) + (sd.preIssueMatchedAmount || 0)) || sd.amount || 0)
                 : null;
 
+            // 모든 선발행 partialPayments에서 같은 입금건에 귀속된 합계 누적
+            // (sourceDepositId 일치 또는 legacy 데이터의 동일 triple 일치)
             let attributed = 0;
             let conflictPreId = null;
             deposits.forEach(other => {
@@ -1720,11 +1723,13 @@
                 console.warn(`⚠️ 중복 매칭 차단: 입금#${sourceDepositId} 원래 ${formatNumber(sourceOriginal)}원, 이미 매칭 ${formatNumber(attributed)}원 + 신규 ${formatNumber(payment.amount)}원 → 선발행#${pre.id}${conflictPreId ? ` (충돌: 선발행#${conflictPreId})` : ''}`);
                 return false;
             }
+            // sourceOriginal=0인 경우(이미 소진된 입금)는 무조건 차단
             if (sourceOriginal === 0 && attributed > 0) {
                 console.warn(`⚠️ 중복 매칭 차단: 입금#${sourceDepositId} 이미 소진됨 (누적 ${formatNumber(attributed)}원) → 선발행#${pre.id}${conflictPreId ? ` (충돌: 선발행#${conflictPreId})` : ''}`);
                 return false;
             }
         } else {
+            // sourceDepositId 없는 경우: 동일 (date+name+amount)이 다른 선발행에 이미 있으면 차단 (legacy)
             if (payment.depositorName) {
                 const dup = deposits.find(other => {
                     if (!other.isPreIssue || other.id === pre.id) return false;
@@ -2660,14 +2665,29 @@
         const m = String(now.getMonth() + 1).padStart(2, '0');
         const dd = String(now.getDate()).padStart(2, '0');
         const today = `${y}-${m}-${dd}`;
-        const targetItems = deposits.filter(d => {
+
+        // ★ 그 달의 위탁 건 중 발행완료 안 된 것 (미입금 선발행은 제외 — 입금되지 않은 건은 발행하면 안 됨)
+        const monthCandidates = deposits.filter(d => {
             if (d.category !== '위탁') return false;
             if (String(d.partnerId) !== String(partnerId)) return false;
             const dMonth = (d.date || d.requestDate || '').substring(0, 7);
             return dMonth === yearMonth && d.actionRequired !== '세금계산서 발행완료';
         });
-        if (targetItems.length === 0) { showToast('발행 처리할 건이 없습니다.', 'info'); return; }
-        if (!confirm(`${targetItems.length}건을 일괄 발행완료 처리하시겠습니까?`)) return;
+        const targetItems = monthCandidates.filter(d => !(d.isPreIssue && !d.date));
+        const skippedUnpaid = monthCandidates.filter(d => d.isPreIssue && !d.date);
+
+        if (targetItems.length === 0) {
+            if (skippedUnpaid.length > 0) {
+                showToast(`발행 처리할 건이 없습니다. (미입금 선발행 ${skippedUnpaid.length}건은 입금 후 처리됩니다)`, 'info');
+            } else {
+                showToast('발행 처리할 건이 없습니다.', 'info');
+            }
+            return;
+        }
+        const skipMsg = skippedUnpaid.length > 0
+            ? `\n\n※ 미입금 선발행 ${skippedUnpaid.length}건은 입금되지 않아 제외됩니다.`
+            : '';
+        if (!confirm(`입금완료된 ${targetItems.length}건을 일괄 발행완료 처리하시겠습니까?${skipMsg}`)) return;
         targetItems.forEach(d => {
             d.issueDate = today;
             d.status = '완료';
@@ -2676,7 +2696,8 @@
         saveToStorage(true, '계산서');
         renderAll();
         renderTaxInvoiceList();
-        showToast(`위탁 ${targetItems.length}건 일괄 발행완료 처리되었습니다.`, 'success');
+        const skipNote = skippedUnpaid.length > 0 ? ` (미입금 ${skippedUnpaid.length}건 제외)` : '';
+        showToast(`위탁 ${targetItems.length}건 일괄 발행완료 처리되었습니다.${skipNote}`, 'success');
     }
 
     function revertIssued(id, type) {
@@ -3007,7 +3028,7 @@
 
         if (!partnerId) { showToast('거래처를 선택해주세요.', 'error'); return; }
         if (!amount || isNaN(amount) || amount <= 0) { showToast('금액을 입력해주세요.', 'error'); return; }
-        if (!issueDate) { showToast('발행일자를 선택해주세요.', 'error'); return; }
+        if (!issueDate) { showToast('요청일자를 선택해주세요.', 'error'); return; }
         if (type === 'tax' && !piCategory) { showToast('구분(위탁/포어스토어)을 선택해주세요.', 'error'); return; }
         if (type === 'tax' && piCategory === '포어' && !piChannel) { showToast('채널(자사몰/직접발주)을 선택해주세요.', 'error'); return; }
 
@@ -3340,7 +3361,9 @@
 
     // 통장내역 업로드 시 선발행 미입금 건 자동매칭 (분할입금 대응)
     function autoMatchPreIssueDeposits(newDeposits) {
-        const unpaidPreIssues = deposits.filter(d => d.isPreIssue && !d.date);
+        // ★ 포어 카테고리는 자동매칭 제외: 사용자가 채널/결제방법/구분을 직접 선택해야 하므로
+        //    자동으로 완료 처리되면 분류가 누락된 채로 끝나는 문제가 생김. 위탁 카테고리만 자동매칭.
+        const unpaidPreIssues = deposits.filter(d => d.isPreIssue && !d.date && d.category !== '포어');
         if (unpaidPreIssues.length === 0 || newDeposits.length === 0) return 0;
 
         let matched = 0;
@@ -3468,7 +3491,9 @@
             partnerMap[pid].total += d.amount;
             partnerMap[pid].count++;
             const pp = d.partialPayments || [];
-            const paidAmt = d.date ? d.amount : pp.reduce((s, x) => s + x.amount, 0);
+            const ppSum = pp.reduce((s, x) => s + x.amount, 0);
+            // partialPayments 합계가 있으면 그 값 사용(과입금 감지), 없으면 d.date 기반
+            const paidAmt = ppSum > 0 ? ppSum : (d.date ? d.amount : 0);
             partnerMap[pid].paid += paidAmt;
             if (!d.date) {
                 partnerMap[pid].unpaidCount++;
@@ -3493,7 +3518,7 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-sub);user-select:none">
                         <input type="checkbox" ${hideFullPaid ? 'checked' : ''} onchange="toggleHideFullPaid('${wrapId}')" style="accent-color:var(--navy);width:13px;height:13px;cursor:pointer"> 완납 숨기기${fullPaidCount > 0 ? ' (' + fullPaidCount + '건)' : ''}
                     </label>
-                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건${grandRemain > 0 ? ` · 미수금 <b style="color:#e53e3e">${formatNumber(grandRemain)}원</b>` : ''}${grandOverpaid > 0 ? ` · 초과입금 <b style="color:#2b6cb0">+${formatNumber(grandOverpaid)}원</b>` : ''}</span>
+                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건${grandRemain > 0 ? ` · 미수금 <b style="color:#e53e3e">${formatNumber(grandRemain)}원</b>` : ''}${grandOverpaid > 0 ? ` · 추가 입금분 <b style="color:#2b6cb0">+${formatNumber(grandOverpaid)}원</b>` : ''}</span>
                 </div>
             </div>
             <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
@@ -3524,19 +3549,17 @@
 
             let remainDisplay;
             if (isOverpaid) {
-                remainDisplay = `<span style="color:#2b6cb0;font-weight:700">초과입금 +${formatNumber(overpaidAmt)}원</span>`;
+                remainDisplay = `<span style="color:#2b6cb0;font-weight:700">추가 입금분 +${formatNumber(overpaidAmt)}원</span>`;
             } else if (isFullPaid) {
                 remainDisplay = '완납';
             } else {
                 remainDisplay = `<span style="color:#e53e3e;font-weight:700">${formatNumber(remain)}원</span>`;
             }
 
-            // ★ 뱃지: 미수금 or 초과입금 금액 표시
+            // ★ 뱃지: 초과 입금 시에만 표시 (미수금은 오른쪽 컬럼과 중복되어 제거)
             let nameBadge = '';
             if (isOverpaid) {
                 nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#ebf8ff;color:#2b6cb0;font-weight:700;border:1px solid #bee3f8">초과 +${formatNumber(overpaidAmt)}원</span>`;
-            } else if (hasRemain) {
-                nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fff5f5;color:#e53e3e;font-weight:700;border:1px solid #feb2b2">미수금 ${formatNumber(remain)}원</span>`;
             }
 
             html += `<tr style="${rowStyle}" onclick="toggleBalancePaymentHistory('${wrapId}',${e.pid},'${tabType}')" title="클릭하여 입금 내역 보기">
@@ -3753,7 +3776,8 @@
         const d = deposits.find(r => r.id === depositId);
         if (!d || !d.isPreIssue) return;
         const pp = d.partialPayments || [];
-        const paidAmt = d.date ? d.amount : pp.reduce((s, x) => s + x.amount, 0);
+        const ppSum = pp.reduce((s, x) => s + x.amount, 0);
+        const paidAmt = ppSum > 0 ? ppSum : (d.date ? d.amount : 0);
         const payCount = pp.length || (d.date ? 1 : 0);
 
         if (!confirm(`"${d.depositorName}" 선발행 건의 입금 매칭을 취소하시겠습니까?\n(${payCount}건 · ${formatNumber(paidAmt)}원의 입금 기록이 해제됩니다)`)) return;
@@ -3867,6 +3891,8 @@
 
         items.forEach(pre => {
             if (!pre.isPreIssue) return; // 선발행만
+            // ★ 포어 카테고리 선발행은 자동 병합/매칭 제외 (사용자가 직접 분류 선택해야 함)
+            if (pre.category === '포어') return;
             const prePartner = pre.partnerId ? getPartnerById(pre.partnerId) : null;
             const prePartnerName = prePartner ? prePartner.name : '';
             const preRepName = prePartner ? (prePartner.repName || '') : '';
@@ -4065,6 +4091,10 @@
                 statusBadge = `<span class="badge-pill" style="${badgeBgDone};cursor:default" title="${issueTypeLabel}">발행완료</span>`;
             } else {
                 statusBadge = `<span class="badge-pill" style="${badgeBgReq};cursor:default" title="${issueTypeLabel}">발행요청</span>`;
+                // 선발행 요청일은 상태 배지 아래에 명확히 표시 (발행일 컬럼과 분리)
+                if (isPreIssue && d.requestDate) {
+                    statusBadge += `<div style="font-size:10px;color:var(--text-dim);margin-top:2px">요청: ${d.requestDate}</div>`;
+                }
             }
             const pp = d.partialPayments || [];
             const paidTotal = pp.reduce((s, x) => s + x.amount, 0);
@@ -4096,12 +4126,10 @@
                 dateDisplay = '-';
             }
 
-            // 발행일: 발행완료면 issueDate, 아니면 requestDate
+            // 발행일: 실제 발행완료된 경우에만 issueDate 표시. 미발행은 빈칸(요청일은 상태 배지 아래에 표시됨)
             let issueDateDisplay;
             if (isComplete && d.issueDate) {
                 issueDateDisplay = d.issueDate;
-            } else if (d.requestDate) {
-                issueDateDisplay = `<span style="color:var(--text-sub)">${d.requestDate}</span>`;
             } else {
                 issueDateDisplay = '<span class="text-muted">-</span>';
             }
