@@ -3228,7 +3228,10 @@
 
     function removePartialPayment(depositId, index) {
         const d = deposits.find(r => r.id === depositId);
-        if (!d || !d.partialPayments) return;
+        if (!d || !d.partialPayments || !d.partialPayments[index]) return;
+        const pp = d.partialPayments[index];
+        // ★ 선발행에서 분할입금 제거 시 원본 입금건 amount 복원
+        if (d.isPreIssue) restoreSourceDepositForPayment(pp);
         d.partialPayments.splice(index, 1);
         // 전액 입금 취소 시 date 초기화
         const paidTotal = d.partialPayments.reduce((s, pp) => s + pp.amount, 0);
@@ -3245,6 +3248,8 @@
         const pp = d.partialPayments[index];
         const msg = `[${pp.date || '-'}] ${formatNumber(pp.amount)}원 입금 내역을 삭제하시겠습니까?`;
         if (!confirm(msg)) return;
+        // ★ 선발행에서 분할입금 제거 시 원본 입금건 amount 복원
+        if (d.isPreIssue) restoreSourceDepositForPayment(pp);
         d.partialPayments.splice(index, 1);
         // 전액 입금 취소 시 date·status 초기화
         const paidTotal = d.partialPayments.reduce((s, x) => s + x.amount, 0);
@@ -3266,6 +3271,8 @@
         const pp = d.partialPayments[index];
         const msg = `[${pp.date || '-'}] ${formatNumber(pp.amount)}원${pp.depositorName ? ' (' + pp.depositorName + ')' : ''} 입금 내역을 삭제하시겠습니까?`;
         if (!confirm(msg)) return;
+        // ★ 선발행에서 분할입금 제거 시 원본 입금건 amount 복원
+        if (d.isPreIssue) restoreSourceDepositForPayment(pp);
         d.partialPayments.splice(index, 1);
         // 전액 입금 취소 시 date·status 초기화
         const paidTotal = d.partialPayments.reduce((s, x) => s + x.amount, 0);
@@ -3679,6 +3686,61 @@
         detailHtml += `</tbody></table></div>`;
         row.querySelector('td').innerHTML = detailHtml;
         row.style.display = 'table-row';
+    }
+
+    // ★ 선발행에서 단일 partialPayment 제거 시 원본 입금건 amount 복원
+    // (sourceDepositId 우선, 없으면 date+depositorName으로 폴백)
+    function restoreSourceDepositForPayment(payment) {
+        let source = null;
+        if (payment.sourceDepositId != null) {
+            source = deposits.find(d => d.id === payment.sourceDepositId && !d.isPreIssue);
+        }
+        if (!source) {
+            source = deposits.find(d =>
+                !d.isPreIssue && d.depositorName === payment.depositorName &&
+                d.date === payment.date && (d.originalAmount || d.preIssueMatchedAmount)
+            );
+        }
+        if (source) {
+            source.amount += payment.amount;
+            source.preIssueMatchedAmount = (source.preIssueMatchedAmount || 0) - payment.amount;
+            if (source.preIssueMatchedAmount <= 0) {
+                delete source.originalAmount;
+                delete source.preIssueMatchedAmount;
+                source.memo = (source.memo || '').replace(/\s*\[선발행 매칭 [\d,]+원 차감\]/g, '');
+                if (source.actionRequired === '처리완료(선발행매칭)') {
+                    source.actionRequired = '';
+                    source.status = '확인중';
+                    source.preIssueConsumed = false;
+                }
+            } else {
+                source.memo = (source.memo || '').replace(/\s*\[선발행 매칭 [\d,]+원 차감\]/g, '') + ` [선발행 매칭 ${formatNumber(source.preIssueMatchedAmount)}원 차감]`;
+            }
+            return true;
+        }
+
+        // consumedDeposits에서 완전히 사라진 건 복원 (전액 매칭으로 사라졌다가 매칭 해제)
+        const consumedIdx = consumedDeposits.findIndex(c =>
+            c.depositorName === payment.depositorName && c.date === payment.date
+        );
+        if (consumedIdx !== -1) {
+            const consumed = consumedDeposits[consumedIdx];
+            deposits.push({
+                id: nextDepositId++,
+                date: consumed.date,
+                depositorName: consumed.depositorName,
+                amount: payment.amount,
+                status: '확인중',
+                category: '', channel: '', paymentMethod: '', cardCompany: '',
+                actionRequired: '', orderNo: '', note: '',
+                partnerId: null, suggestedPartnerId: null,
+                autoCategory: null,
+                createdAt: new Date().toISOString()
+            });
+            consumedDeposits.splice(consumedIdx, 1);
+            return true;
+        }
+        return false;
     }
 
     // ★ 선발행 삭제 시 연결된 입금건 금액 복원
