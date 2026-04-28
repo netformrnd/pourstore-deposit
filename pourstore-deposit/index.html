@@ -1686,6 +1686,67 @@
         updateCurrentDate();
     }
 
+    // ★ 분할입금 추가 (중복 매칭 방지 가드 포함)
+    // 한 입금건이 여러 선발행에 동시에 매칭될 때 누적 합계가 원래 입금액을 초과하면 차단.
+    // 정당한 분할(예: 5M 입금을 3M+2M로 두 선발행에 나눠 매칭)은 통과시키고,
+    // 실제 중복(예: 1.5M 입금이 2개 선발행에 1.5M씩 = 3M으로 매칭됨)만 차단한다.
+    function addPartialPaymentSafe(pre, payment, sourceDepositId) {
+        if (!pre.partialPayments) pre.partialPayments = [];
+
+        if (sourceDepositId != null) {
+            const sd = deposits.find(d => d.id === sourceDepositId && !d.isPreIssue);
+            const sourceOriginal = sd
+                ? (sd.originalAmount || ((sd.amount || 0) + (sd.preIssueMatchedAmount || 0)) || sd.amount || 0)
+                : null;
+
+            let attributed = 0;
+            let conflictPreId = null;
+            deposits.forEach(other => {
+                if (!other.isPreIssue) return;
+                (other.partialPayments || []).forEach(pp => {
+                    const byId = pp.sourceDepositId === sourceDepositId;
+                    const byTriple = pp.sourceDepositId == null
+                        && pp.date === payment.date
+                        && pp.depositorName === payment.depositorName
+                        && pp.amount === payment.amount;
+                    if (byId || byTriple) {
+                        attributed += pp.amount;
+                        if (other.id !== pre.id) conflictPreId = other.id;
+                    }
+                });
+            });
+
+            if (sourceOriginal != null && sourceOriginal > 0 && attributed + payment.amount > sourceOriginal + 0.01) {
+                console.warn(`⚠️ 중복 매칭 차단: 입금#${sourceDepositId} 원래 ${formatNumber(sourceOriginal)}원, 이미 매칭 ${formatNumber(attributed)}원 + 신규 ${formatNumber(payment.amount)}원 → 선발행#${pre.id}${conflictPreId ? ` (충돌: 선발행#${conflictPreId})` : ''}`);
+                return false;
+            }
+            if (sourceOriginal === 0 && attributed > 0) {
+                console.warn(`⚠️ 중복 매칭 차단: 입금#${sourceDepositId} 이미 소진됨 (누적 ${formatNumber(attributed)}원) → 선발행#${pre.id}${conflictPreId ? ` (충돌: 선발행#${conflictPreId})` : ''}`);
+                return false;
+            }
+        } else {
+            if (payment.depositorName) {
+                const dup = deposits.find(other => {
+                    if (!other.isPreIssue || other.id === pre.id) return false;
+                    return (other.partialPayments || []).some(pp =>
+                        pp.date === payment.date &&
+                        pp.depositorName === payment.depositorName &&
+                        pp.amount === payment.amount
+                    );
+                });
+                if (dup) {
+                    console.warn(`⚠️ 중복 매칭 차단(triple): ${payment.depositorName} ${payment.date || ''} ${formatNumber(payment.amount)}원 → 선발행#${pre.id} (이미 선발행#${dup.id})`);
+                    return false;
+                }
+            }
+        }
+
+        const entry = { ...payment };
+        if (sourceDepositId != null) entry.sourceDepositId = sourceDepositId;
+        pre.partialPayments.push(entry);
+        return true;
+    }
+
     // ★ 거래처별 선발행/입금 진단 (콘솔: debugBalance() 또는 debugBalance('엔트클린'))
     window.debugBalance = function(partnerName) {
         const preItems = deposits.filter(d => d.isPreIssue);
@@ -3011,11 +3072,12 @@
                     if (remaining <= 0) return;
                     const applyAmount = Math.min(bd.amount, remaining);
 
-                    newDeposit.partialPayments.push({
+                    const ok = addPartialPaymentSafe(newDeposit, {
                         date: bd.date,
                         amount: applyAmount,
                         depositorName: bd.depositorName
-                    });
+                    }, bd.id);
+                    if (!ok) return;
                     remaining -= applyAmount;
 
                     if (applyAmount >= bd.amount) {
@@ -3221,6 +3283,12 @@
 
         if (preRemain <= 0) { showToast('이미 완납된 선발행 건입니다.', 'error'); return; }
 
+        // ★ 이 입금건이 이미 다른 선발행에 매칭되어 있으면 차단 (중복 매칭 방지)
+        if (d.preIssueConsumed) {
+            showToast('이 입금건은 이미 선발행에 매칭된 상태입니다. 매칭을 해제한 후 다시 시도해주세요.', 'error');
+            return;
+        }
+
         const matchAmount = Math.min(d.amount, preRemain);
         const excessAmount = d.amount - matchAmount;
 
@@ -3230,8 +3298,11 @@
             (excessAmount > 0 ? `\n\n※ 초과분 ${formatNumber(excessAmount)}원은 별도 입금건으로 유지됩니다.` : '');
         if (!confirm(msg)) return;
 
-        // 선발행 건에 부분입금 추가
-        pre.partialPayments.push({ date: d.date, amount: matchAmount, depositorName: d.depositorName });
+        // 선발행 건에 부분입금 추가 (중복 매칭 가드 적용)
+        if (!addPartialPaymentSafe(pre, { date: d.date, amount: matchAmount, depositorName: d.depositorName }, d.id)) {
+            showToast('이미 다른 선발행에 매칭된 입금입니다. 처리를 중단합니다.', 'error');
+            return;
+        }
         const totalPaid = pre.partialPayments.reduce((s, x) => s + x.amount, 0);
         if (totalPaid >= pre.amount) {
             pre.date = d.date;
@@ -3317,30 +3388,32 @@
             const remaining = pre.amount - paidSoFar;
             if (remaining <= 0) return;
 
-            // 정확 일치 (전액 입금)
-            const exactMatch = nameMatches.find(nd => nd.amount === remaining);
+            // 정확 일치 (전액 입금) — 이미 다른 선발행에 매칭된 입금건은 제외
+            const exactMatch = nameMatches.find(nd => nd.amount === remaining && !nd.preIssueConsumed);
             if (exactMatch) {
-                pre.partialPayments.push({ date: exactMatch.date, amount: exactMatch.amount, depositorName: exactMatch.depositorName });
-                pre.date = exactMatch.date; // 전액 완료
-                pre.status = '완료';
-                usedIds.add(exactMatch.id);
-                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
-                // ★ 삭제하지 않고 완료 처리 (리스트에 유지)
-                exactMatch.status = '완료';
-                exactMatch.preIssueConsumed = true;
-                exactMatch.actionRequired = '처리완료(선발행매칭)';
-                matched++;
-                return;
+                if (addPartialPaymentSafe(pre, { date: exactMatch.date, amount: exactMatch.amount, depositorName: exactMatch.depositorName }, exactMatch.id)) {
+                    pre.date = exactMatch.date; // 전액 완료
+                    pre.status = '완료';
+                    usedIds.add(exactMatch.id);
+                    consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
+                    // ★ 삭제하지 않고 완료 처리 (리스트에 유지)
+                    exactMatch.status = '완료';
+                    exactMatch.preIssueConsumed = true;
+                    exactMatch.actionRequired = '처리완료(선발행매칭)';
+                    matched++;
+                    return;
+                }
+                // 가드에 걸리면 부분일치 분기로 폴스루
             }
 
             // 부분 일치 (잔액 이하 금액 → 분할입금으로 등록, 초과분은 잔여 입금건으로 유지)
             let partialMatched = false;
             let runningRemain = remaining;
             nameMatches.forEach(nd => {
-                if (usedIds.has(nd.id) || runningRemain <= 0) return;
+                if (usedIds.has(nd.id) || runningRemain <= 0 || nd.preIssueConsumed) return;
                 if (nd.amount <= runningRemain) {
                     // 입금액 ≤ 잔액: 전액 매칭 → 삭제하지 않고 완료 처리
-                    pre.partialPayments.push({ date: nd.date, amount: nd.amount, depositorName: nd.depositorName });
+                    if (!addPartialPaymentSafe(pre, { date: nd.date, amount: nd.amount, depositorName: nd.depositorName }, nd.id)) return;
                     runningRemain -= nd.amount;
                     usedIds.add(nd.id);
                     consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount });
@@ -3350,7 +3423,7 @@
                     partialMatched = true;
                 } else if (runningRemain > 0) {
                     // ★ 입금액 > 잔액: 잔액만큼만 매칭, 초과분은 입금건에 남김
-                    pre.partialPayments.push({ date: nd.date, amount: runningRemain, depositorName: nd.depositorName });
+                    if (!addPartialPaymentSafe(pre, { date: nd.date, amount: runningRemain, depositorName: nd.depositorName }, nd.id)) return;
                     nd.originalAmount = nd.originalAmount || nd.amount;
                     nd.preIssueMatchedAmount = (nd.preIssueMatchedAmount || 0) + runningRemain;
                     nd.amount -= runningRemain;
@@ -3850,8 +3923,9 @@
                     if (!pre.partialPayments) pre.partialPayments = [];
                     const alreadyLinked = pre.partialPayments.some(pp => pp.date === reg.date && pp.depositorName === reg.depositorName);
                     if (!alreadyLinked) {
-                        pre.partialPayments.push({ date: reg.date, amount: reg.originalAmount || reg.amount, depositorName: reg.depositorName });
-                        needSave = true;
+                        if (addPartialPaymentSafe(pre, { date: reg.date, amount: reg.originalAmount || reg.amount, depositorName: reg.depositorName }, reg.id)) {
+                            needSave = true;
+                        }
                     }
                     const totalPaid = pre.partialPayments.reduce((s, x) => s + x.amount, 0);
                     if (totalPaid >= pre.amount && !pre.date) {
@@ -4576,6 +4650,12 @@
             const isPrePayment = document.getElementById('ddIsPreIssuePayment').checked;
             const preTargetCbs = document.querySelectorAll('.preIssueTargetCb:checked');
             if (isPrePayment && preTargetCbs.length > 0) {
+                // ★ 이미 다른 선발행에 매칭된 입금건은 차단 (중복 매칭 방지)
+                if (d.preIssueConsumed) {
+                    showToast('이 입금건은 이미 선발행에 매칭된 상태입니다. 매칭을 해제한 후 다시 시도해주세요.', 'error');
+                    return;
+                }
+
                 let remainingAmount = d.amount;
                 let totalMatched = 0;
                 const matchedNames = [];
@@ -4593,7 +4673,7 @@
                     if (preRemain <= 0) return;
 
                     const matchAmount = Math.min(remainingAmount, preRemain);
-                    pre.partialPayments.push({ date: d.date, amount: matchAmount, depositorName: d.depositorName });
+                    if (!addPartialPaymentSafe(pre, { date: d.date, amount: matchAmount, depositorName: d.depositorName }, d.id)) return;
                     const totalPaid = pre.partialPayments.reduce((s, x) => s + x.amount, 0);
                     if (totalPaid >= pre.amount) {
                         pre.date = d.date;
