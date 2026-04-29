@@ -461,10 +461,10 @@
                 <div class="table-scroll">
                     <table>
                         <colgroup>
-                            <col style="width:10%"><col style="width:10%"><col style="width:13%"><col style="width:10%"><col style="width:13%"><col style="width:11%"><col style="width:7%"><col style="width:9%"><col style="width:13%"><col style="width:4%">
+                            <col style="width:9%"><col style="width:9%"><col style="width:11%"><col style="width:9%"><col style="width:11%"><col style="width:10%"><col style="width:6%"><col style="width:8%"><col style="width:12%"><col style="width:11%"><col style="width:4%">
                         </colgroup>
                         <thead><tr>
-                            <th>발행일</th><th>입금일</th><th>입금처</th><th style="text-align:right">금액</th><th>거래처(상호)</th><th>사업자번호</th><th>대표자</th><th style="cursor:help" title="초록색 = 선발행 (입금 전 발행)&#10;파란색 = 후발행 (입금 후 발행)">상태 ⓘ</th><th>처리</th><th></th>
+                            <th>발행일</th><th>입금일</th><th>입금처</th><th style="text-align:right">금액</th><th>거래처(상호)</th><th>사업자번호</th><th>대표자</th><th style="cursor:help" title="초록색 = 선발행 (입금 전 발행)&#10;파란색 = 후발행 (입금 후 발행)">상태 ⓘ</th><th>처리</th><th>비고</th><th></th>
                         </tr></thead>
                         <tbody id="taxInvoiceBody"></tbody>
                     </table>
@@ -3267,7 +3267,9 @@
             partnerMap[pid].total += d.amount;
             partnerMap[pid].count++;
             const pp = d.partialPayments || [];
-            const paidAmt = d.date ? d.amount : pp.reduce((s, x) => s + x.amount, 0);
+            const ppSum = pp.reduce((s, x) => s + x.amount, 0);
+            // partialPayments 합계가 있으면 그 값 사용(과입금 감지), 없으면 d.date 기반
+            const paidAmt = ppSum > 0 ? ppSum : (d.date ? d.amount : 0);
             partnerMap[pid].paid += paidAmt;
             if (!d.date) {
                 partnerMap[pid].unpaidCount++;
@@ -3292,7 +3294,7 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-sub);user-select:none">
                         <input type="checkbox" ${hideFullPaid ? 'checked' : ''} onchange="toggleHideFullPaid('${wrapId}')" style="accent-color:var(--navy);width:13px;height:13px;cursor:pointer"> 완납 숨기기${fullPaidCount > 0 ? ' (' + fullPaidCount + '건)' : ''}
                     </label>
-                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건${grandRemain > 0 ? ` · 미수금 <b style="color:#e53e3e">${formatNumber(grandRemain)}원</b>` : ''}${grandOverpaid > 0 ? ` · 초과입금 <b style="color:#2b6cb0">+${formatNumber(grandOverpaid)}원</b>` : ''}</span>
+                    <span style="font-size:12px;color:var(--text-sub)">선발행 ${preItems.length}건${grandRemain > 0 ? ` · 미수금 <b style="color:#e53e3e">${formatNumber(grandRemain)}원</b>` : ''}${grandOverpaid > 0 ? ` · 추가 입금분 <b style="color:#2b6cb0">+${formatNumber(grandOverpaid)}원</b>` : ''}</span>
                 </div>
             </div>
             <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
@@ -3323,19 +3325,17 @@
 
             let remainDisplay;
             if (isOverpaid) {
-                remainDisplay = `<span style="color:#2b6cb0;font-weight:700">초과입금 +${formatNumber(overpaidAmt)}원</span>`;
+                remainDisplay = `<span style="color:#2b6cb0;font-weight:700">추가 입금분 +${formatNumber(overpaidAmt)}원</span>`;
             } else if (isFullPaid) {
                 remainDisplay = '완납';
             } else {
                 remainDisplay = `<span style="color:#e53e3e;font-weight:700">${formatNumber(remain)}원</span>`;
             }
 
-            // ★ 뱃지: 미수금 or 초과입금 금액 표시
+            // ★ 뱃지: 초과 입금 시에만 표시 (미수금은 오른쪽 컬럼과 중복되어 제거)
             let nameBadge = '';
             if (isOverpaid) {
                 nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#ebf8ff;color:#2b6cb0;font-weight:700;border:1px solid #bee3f8">초과 +${formatNumber(overpaidAmt)}원</span>`;
-            } else if (hasRemain) {
-                nameBadge = ` <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fff5f5;color:#e53e3e;font-weight:700;border:1px solid #feb2b2">미수금 ${formatNumber(remain)}원</span>`;
             }
 
             html += `<tr style="${rowStyle}" onclick="toggleBalancePaymentHistory('${wrapId}',${e.pid},'${tabType}')" title="클릭하여 입금 내역 보기">
@@ -3552,7 +3552,8 @@
         const d = deposits.find(r => r.id === depositId);
         if (!d || !d.isPreIssue) return;
         const pp = d.partialPayments || [];
-        const paidAmt = d.date ? d.amount : pp.reduce((s, x) => s + x.amount, 0);
+        const ppSum = pp.reduce((s, x) => s + x.amount, 0);
+        const paidAmt = ppSum > 0 ? ppSum : (d.date ? d.amount : 0);
         const payCount = pp.length || (d.date ? 1 : 0);
 
         if (!confirm(`"${d.depositorName}" 선발행 건의 입금 매칭을 취소하시겠습니까?\n(${payCount}건 · ${formatNumber(paidAmt)}원의 입금 기록이 해제됩니다)`)) return;
@@ -3911,6 +3912,8 @@
             const vatAmt = d.amount - supplyAmt;
             const amountDisplay = `<div style="line-height:1.4">${formatNumber(d.amount)}원<br><span style="font-size:10px;color:var(--text-sub)" title="공급가액 ${formatNumber(supplyAmt)}원 + 부가세 ${formatNumber(vatAmt)}원">공급 ${formatNumber(supplyAmt)} / 부가세 ${formatNumber(vatAmt)}</span></div>`;
             const deleteCell = `<span onclick="event.stopPropagation();deleteTaxInvoiceItem(${d.id},'tax',${isPreIssue})" style="cursor:pointer;color:#CBD5E1;font-size:1rem" title="삭제">✕</span>`;
+            const noteVal = (d.note || '').replace(/"/g, '&quot;');
+            const noteCell = `<input type="text" value="${noteVal}" placeholder="-" onchange="updateTaxInvoiceNote(${d.id}, this.value)" onclick="event.stopPropagation()" style="width:100%;padding:3px 6px;border:1px solid transparent;border-radius:3px;font-size:12px;background:transparent;font-family:inherit;color:var(--text)" onfocus="this.style.borderColor='var(--border)';this.style.background='#fff'" onblur="this.style.borderColor='transparent';this.style.background='transparent'">`;
             return `<tr>
                 <td class="text-sm">${issueDateDisplay}</td>
                 <td class="text-sm">${dateDisplay}</td>
@@ -3921,6 +3924,7 @@
                 <td class="text-sm">${repName}</td>
                 <td>${statusBadge}</td>
                 <td style="text-align:center">${actions}</td>
+                <td>${noteCell}</td>
                 <td>${deleteCell}</td>
             </tr>`;
         }).join('');
@@ -3931,6 +3935,16 @@
         document.getElementById('taxReqTotal').textContent = formatNumber(reqItems.reduce((s, d) => s + d.amount, 0));
         document.getElementById('taxDoneCount').textContent = doneItems.length;
         document.getElementById('taxDoneTotal').textContent = formatNumber(doneItems.reduce((s, d) => s + d.amount, 0));
+    }
+
+    // 계산서발행 탭 비고 인라인 저장
+    function updateTaxInvoiceNote(id, value) {
+        const d = deposits.find(x => x.id === id);
+        if (!d) return;
+        const newVal = (value || '').trim();
+        if ((d.note || '') === newVal) return;
+        d.note = newVal;
+        saveToStorage(true);
     }
 
     function renderCashBalanceSummary() {

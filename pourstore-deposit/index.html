@@ -481,10 +481,10 @@
                 <div class="table-scroll">
                     <table>
                         <colgroup>
-                            <col style="width:10%"><col style="width:10%"><col style="width:13%"><col style="width:10%"><col style="width:13%"><col style="width:11%"><col style="width:7%"><col style="width:9%"><col style="width:13%"><col style="width:4%">
+                            <col style="width:9%"><col style="width:9%"><col style="width:11%"><col style="width:9%"><col style="width:11%"><col style="width:10%"><col style="width:6%"><col style="width:8%"><col style="width:12%"><col style="width:11%"><col style="width:4%">
                         </colgroup>
                         <thead><tr>
-                            <th>발행일</th><th>입금일</th><th>입금처</th><th style="text-align:right">금액</th><th>거래처(상호)</th><th>사업자번호</th><th>대표자</th><th style="cursor:help" title="초록색 = 선발행 (입금 전 발행)&#10;파란색 = 후발행 (입금 후 발행)">상태 ⓘ</th><th>처리</th><th></th>
+                            <th>발행일</th><th>입금일</th><th>입금처</th><th style="text-align:right">금액</th><th>거래처(상호)</th><th>사업자번호</th><th>대표자</th><th style="cursor:help" title="초록색 = 선발행 (입금 전 발행)&#10;파란색 = 후발행 (입금 후 발행)">상태 ⓘ</th><th>처리</th><th>비고</th><th></th>
                         </tr></thead>
                         <tbody id="taxInvoiceBody"></tbody>
                     </table>
@@ -4118,6 +4118,7 @@
                     <td>${statusBadge}</td>
                     <td style="text-align:center">${actions}</td>
                     <td></td>
+                    <td></td>
                 </tr>`;
             }).join('');
 
@@ -4208,6 +4209,8 @@
                 amountDisplay = `<div style="line-height:1.3">${formatNumber(d.amount)}원<br><span style="font-size:10px;color:var(--text-sub)">공급 ${formatNumber(supplyAmt)} / 부가세 ${formatNumber(vatAmt)}</span><br><span style="font-size:10px;color:#dc2626;font-weight:700" title="입금 ${formatNumber(paidTotal)}원 - 선발행 ${formatNumber(d.amount)}원 = 과입금 ${formatNumber(overpaidAmt)}원">과입금 +${formatNumber(overpaidAmt)}원</span></div>`;
             }
             const deleteCell = `<span onclick="event.stopPropagation();deleteTaxInvoiceItem(${d.id},'tax',${isPreIssue})" style="cursor:pointer;color:#CBD5E1;font-size:1rem" title="삭제">✕</span>`;
+            const noteVal = (d.note || '').replace(/"/g, '&quot;');
+            const noteCell = `<input type="text" value="${noteVal}" placeholder="-" onchange="updateTaxInvoiceNote(${d.id}, this.value)" onclick="event.stopPropagation()" style="width:100%;padding:3px 6px;border:1px solid transparent;border-radius:3px;font-size:12px;background:transparent;font-family:inherit;color:var(--text)" onfocus="this.style.borderColor='var(--border)';this.style.background='#fff'" onblur="this.style.borderColor='transparent';this.style.background='transparent'">`;
             const rowBg = isOverpaid ? ' style="background:rgba(220,38,38,.04)"' : '';
             return `<tr${rowBg}>
                 <td class="text-sm">${issueDateDisplay}</td>
@@ -4219,6 +4222,7 @@
                 <td class="text-sm">${repName}</td>
                 <td>${statusBadge}</td>
                 <td style="text-align:center">${actions}</td>
+                <td>${noteCell}</td>
                 <td>${deleteCell}</td>
             </tr>`;
         }).join('');
@@ -4250,6 +4254,16 @@
                 overpaidAlert.style.display = 'none';
             }
         }
+    }
+
+    // 계산서발행 탭 비고 인라인 저장
+    function updateTaxInvoiceNote(id, value) {
+        const d = deposits.find(x => x.id === id);
+        if (!d) return;
+        const newVal = (value || '').trim();
+        if ((d.note || '') === newVal) return;
+        d.note = newVal;
+        saveToStorage(true);
     }
 
     function renderCashBalanceSummary() {
