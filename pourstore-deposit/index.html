@@ -250,6 +250,7 @@
         <div class="header-right">
             <span id="cloudStatus" title="클라우드 연결 시도 중" style="font-size:11px;color:rgba(255,255,255,.5);display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;display:inline-block"></span>...</span>
             <span class="date" id="currentDate"></span>
+            <button class="btn btn-sm" onclick="openBackupModal()" style="font-size:12px;padding:5px 12px" title="데이터 JSON 백업 / 복원">💾 백업</button>
             <span class="badge">경영관리팀</span>
         </div>
     </div>
@@ -1151,6 +1152,32 @@
             <div class="modal-actions" style="justify-content:center">
                 <button class="btn btn-secondary" onclick="closeModal('passwordModal')">취소</button>
                 <button class="btn btn-primary" onclick="confirmPassword()">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backup / Restore Modal -->
+    <div class="modal-overlay" id="backupModal">
+        <div class="modal" style="max-width:560px">
+            <button class="modal-close" onclick="closeModal('backupModal')">✕</button>
+            <h2 style="font-size:17px">💾 데이터 백업 / 복원</h2>
+            <div id="backupCurrentSummary" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin:12px 0;font-size:13px;line-height:1.7"></div>
+
+            <div style="margin-top:8px;padding:14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:#fff">
+                <div style="font-weight:700;margin-bottom:6px">⬇️ 백업 다운로드</div>
+                <div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;line-height:1.5">현재 데이터(입금·거래처·선발행)를 JSON 파일 한 개로 저장합니다. <strong>주기적으로 백업</strong>해두면 사고 발생 시 곧바로 복원할 수 있습니다.</div>
+                <button class="btn btn-primary" onclick="downloadBackup()">JSON으로 다운로드</button>
+            </div>
+
+            <div style="margin-top:12px;padding:14px;border:1px solid var(--red);border-radius:var(--radius-lg);background:rgba(155,28,28,.04)">
+                <div style="font-weight:700;margin-bottom:6px;color:var(--red)">⬆️ 백업 복원 (주의)</div>
+                <div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;line-height:1.5">선택한 백업 파일의 데이터로 <strong>현재 데이터를 모두 덮어씁니다.</strong><br>클라우드(Firestore)에도 즉시 반영되어 다른 사용자에게도 적용됩니다.</div>
+                <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="handleBackupFileUpload(event)">
+                <button class="btn" onclick="document.getElementById('backupFileInput').click()">백업 파일 선택…</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('backupModal')">닫기</button>
             </div>
         </div>
     </div>
@@ -7799,6 +7826,237 @@
 
     function openModal(id) { document.getElementById(id).classList.add('active'); }
     function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    // ==================== BACKUP / RESTORE ====================
+    const BACKUP_APP_NAME = 'pourstore-deposit';
+    const BACKUP_LS_PREFIX = 'dm_';
+
+    function openBackupModal() {
+        const fmtDate = (iso) => {
+            if (!iso) return '-';
+            try {
+                const d = new Date(iso);
+                return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            } catch { return iso; }
+        };
+        const summary = `📊 <strong>현재 데이터</strong>: 입금 <b>${deposits.length}</b>건 · 거래처 <b>${partners.length}</b>건 · 선발행 요청 <b>${taxRequests.length}</b>건<br>
+                         <span style="color:var(--text-sub);font-size:12px">마지막 갱신: ${fmtDate(lastDepositUpdateStr)}</span>`;
+        document.getElementById('backupCurrentSummary').innerHTML = summary;
+        openModal('backupModal');
+    }
+
+    function downloadBackup() {
+        const data = {
+            _app: BACKUP_APP_NAME,
+            _version: 1,
+            _exportedAt: new Date().toISOString(),
+            deposits: deposits,
+            partners: partners,
+            taxRequests: taxRequests,
+            nextIds: { d: nextDepositId, p: nextPartnerId, t: nextTaxReqId },
+            learnedOnlineNames: learnedOnlineNames,
+            learnedCardNames: learnedCardNames,
+            consumedDeposits: consumedDeposits,
+            lastDepositUpdate: lastDepositUpdateStr,
+            lastUpdateSources: lastUpdateSources
+        };
+        try {
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filename = `${BACKUP_APP_NAME}_backup_${ts}.json`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            showToast(`백업 다운로드: ${filename}`, 'success');
+        } catch (err) {
+            console.error('백업 실패:', err);
+            showToast('백업 다운로드 실패: ' + err.message, 'error');
+        }
+    }
+
+    function handleBackupFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const raw = JSON.parse(e.target.result);
+                const parsed = parseBackupData(raw);
+                if (!parsed) {
+                    showToast('백업 파일 형식을 인식할 수 없습니다.', 'error');
+                    return;
+                }
+                if (parsed.deposits.length === 0 && parsed.partners.length === 0 && parsed.taxRequests.length === 0) {
+                    if (!confirm('⚠️ 이 백업 파일에는 입금/거래처/선발행이 모두 0건입니다.\n\n현재 데이터를 빈 데이터로 덮어쓰시겠습니까?')) return;
+                }
+                confirmAndApplyRestore(parsed, file.name);
+            } catch (err) {
+                console.error(err);
+                showToast('백업 파일을 읽을 수 없습니다: ' + err.message, 'error');
+            }
+        };
+        reader.onerror = function() {
+            showToast('파일을 읽지 못했습니다.', 'error');
+        };
+        reader.readAsText(file, 'utf-8');
+        event.target.value = '';
+    }
+
+    // 다양한 백업 형식을 인식: 앱 자체 백업 / localStorage 덤프 / Firestore export
+    function parseBackupData(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+
+        // 형식 1: 앱 자체 백업 (downloadBackup의 결과물)
+        if (raw._app && Array.isArray(raw.deposits)) {
+            return {
+                deposits: raw.deposits || [],
+                partners: raw.partners || [],
+                taxRequests: raw.taxRequests || [],
+                nextIds: raw.nextIds || null,
+                learnedOnlineNames: raw.learnedOnlineNames || [],
+                learnedCardNames: raw.learnedCardNames || [],
+                consumedDeposits: raw.consumedDeposits || [],
+                lastDepositUpdate: raw.lastDepositUpdate || '',
+                lastUpdateSources: raw.lastUpdateSources || {},
+                sourceFormat: 'app(' + raw._app + ')'
+            };
+        }
+
+        // 형식 2: localStorage 덤프 (키=문자열로 저장된 JSON)
+        const safeParse = (s, def) => {
+            if (s === undefined || s === null) return def;
+            if (typeof s !== 'string') return s;
+            try { return JSON.parse(s); } catch { return def; }
+        };
+        const lsKey = BACKUP_LS_PREFIX + 'deposits';
+        if (typeof raw[lsKey] === 'string') {
+            const ids = safeParse(raw[BACKUP_LS_PREFIX + 'nextIds'], null);
+            return {
+                deposits: safeParse(raw[BACKUP_LS_PREFIX + 'deposits'], []),
+                partners: safeParse(raw[BACKUP_LS_PREFIX + 'partners'], []),
+                taxRequests: safeParse(raw[BACKUP_LS_PREFIX + 'taxRequests'], []),
+                nextIds: ids,
+                learnedOnlineNames: safeParse(raw[BACKUP_LS_PREFIX + 'learnedOnlineNames'], []),
+                learnedCardNames: safeParse(raw[BACKUP_LS_PREFIX + 'learnedCardNames'], []),
+                consumedDeposits: safeParse(raw[BACKUP_LS_PREFIX + 'consumedDeposits'], []),
+                lastDepositUpdate: raw[BACKUP_LS_PREFIX + 'lastUpdated'] || '',
+                lastUpdateSources: safeParse(raw[BACKUP_LS_PREFIX + 'updateSources'], {}),
+                sourceFormat: 'localStorage(' + BACKUP_LS_PREFIX + ')'
+            };
+        }
+        // 그로홈 키 (gh_)도 호환적으로 허용 - 단, 명시적 경고 후
+        if (typeof raw['gh_deposits'] === 'string' && BACKUP_LS_PREFIX !== 'gh_') {
+            if (!confirm('⚠️ 이 파일은 그로홈(gh_) 데이터 백업으로 보입니다.\n포어스토어에 복원하면 데이터가 섞입니다. 정말 진행하시겠습니까?')) return null;
+            const ids = safeParse(raw['gh_nextIds'], null);
+            return {
+                deposits: safeParse(raw['gh_deposits'], []),
+                partners: safeParse(raw['gh_partners'], []),
+                taxRequests: safeParse(raw['gh_taxRequests'], []),
+                nextIds: ids,
+                learnedOnlineNames: safeParse(raw['gh_learnedOnlineNames'], []),
+                learnedCardNames: safeParse(raw['gh_learnedCardNames'], []),
+                consumedDeposits: safeParse(raw['gh_consumedDeposits'], []),
+                lastDepositUpdate: raw['gh_lastUpdated'] || '',
+                lastUpdateSources: safeParse(raw['gh_updateSources'], {}),
+                sourceFormat: 'localStorage(gh_) ⚠️ 그로홈 데이터'
+            };
+        }
+
+        // 형식 3: Firestore export 형식 (배열로 직접 들어있음)
+        if (Array.isArray(raw.deposits) || Array.isArray(raw.partners)) {
+            return {
+                deposits: raw.deposits || [],
+                partners: raw.partners || [],
+                taxRequests: raw.taxRequests || [],
+                nextIds: raw.nextIds || null,
+                learnedOnlineNames: raw.learnedOnlineNames || [],
+                learnedCardNames: raw.learnedCardNames || [],
+                consumedDeposits: raw.consumedDeposits || [],
+                lastDepositUpdate: raw.lastDepositUpdate || '',
+                lastUpdateSources: raw.lastUpdateSources || {},
+                sourceFormat: 'firestore'
+            };
+        }
+        return null;
+    }
+
+    function confirmAndApplyRestore(parsed, filename) {
+        const lines = [
+            `📁 파일: ${filename}`,
+            `📋 형식: ${parsed.sourceFormat}`,
+            ``,
+            `▶ 복원될 데이터:`,
+            `   · 입금 ${parsed.deposits.length}건`,
+            `   · 거래처 ${parsed.partners.length}건`,
+            `   · 선발행 요청 ${parsed.taxRequests.length}건`,
+            ``,
+            `▶ 현재 데이터 (덮어쓰기 됨):`,
+            `   · 입금 ${deposits.length}건`,
+            `   · 거래처 ${partners.length}건`,
+            `   · 선발행 요청 ${taxRequests.length}건`,
+            ``,
+            `⚠️ 클라우드(Firestore)에도 즉시 반영됩니다.`,
+            `⚠️ 다른 사용자에게도 적용됩니다.`,
+            ``,
+            `정말 덮어쓰시겠습니까?`
+        ];
+        if (!confirm(lines.join('\n'))) {
+            showToast('복원이 취소되었습니다.', '');
+            return;
+        }
+        const confirmText = '복원';
+        const typed = prompt(`최종 확인 — 정말 진행하려면 아래 칸에 "${confirmText}" 라고 입력하세요.`);
+        if (typed !== confirmText) {
+            showToast('복원이 취소되었습니다.', '');
+            return;
+        }
+        applyRestore(parsed);
+    }
+
+    function applyRestore(parsed) {
+        try {
+            deposits = parsed.deposits || [];
+            partners = parsed.partners || [];
+            taxRequests = parsed.taxRequests || [];
+
+            // nextIds 결정 (백업에 없으면 데이터에서 추정 + 1)
+            const maxId = (arr) => arr.length ? Math.max(...arr.map(x => Number(x.id) || 0)) + 1 : 1;
+            if (parsed.nextIds && typeof parsed.nextIds === 'object') {
+                nextDepositId = parsed.nextIds.d || maxId(deposits);
+                nextPartnerId = parsed.nextIds.p || maxId(partners);
+                nextTaxReqId  = parsed.nextIds.t || maxId(taxRequests);
+            } else {
+                nextDepositId = maxId(deposits);
+                nextPartnerId = maxId(partners);
+                nextTaxReqId  = maxId(taxRequests);
+            }
+
+            learnedOnlineNames = parsed.learnedOnlineNames || [];
+            learnedCardNames = parsed.learnedCardNames || [];
+            consumedDeposits = parsed.consumedDeposits || [];
+            if (parsed.lastDepositUpdate) lastDepositUpdateStr = parsed.lastDepositUpdate;
+            if (parsed.lastUpdateSources && Object.keys(parsed.lastUpdateSources).length) {
+                lastUpdateSources = parsed.lastUpdateSources;
+            }
+
+            try { migrateData(); } catch(e) { console.warn('migrateData 경고:', e); }
+
+            // localStorage + Firestore 저장
+            saveToStorage(true);
+            renderAll();
+            updateCurrentDate();
+            closeModal('backupModal');
+            showToast(`✅ 복원 완료: 입금 ${deposits.length}건 · 거래처 ${partners.length}건 · 선발행 ${taxRequests.length}건`, 'success');
+        } catch (err) {
+            console.error('복원 실패:', err);
+            showToast('복원 중 오류: ' + err.message, 'error');
+        }
+    }
 
     function showToast(message, type = '') {
         const t = document.getElementById('toast');
