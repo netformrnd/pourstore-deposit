@@ -1,9 +1,15 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-nf-gate="check">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>매출관리 시스템</title>
+    <!-- 넷폼 라운지 로그인(2026-11-09): 공용 비밀번호 대신 라운지 권한으로 입장 -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+    <script src="https://netformrnd.github.io/nf_lounge/nf-config.js"></script>
+    <script src="lounge-gate.js?v=20261109"></script>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" rel="stylesheet">
     <style>
@@ -44,147 +50,17 @@
         .card-pour:hover .card-name { color: #1B2A4A; }
         .card-gro:hover .card-name { color: #111; }
 
-        /* Password Modal */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.3);
-            backdrop-filter: blur(3px);
-            z-index: 100;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-overlay.active { display: flex; }
-        .modal-box {
-            background: #fff;
-            border-radius: 14px;
-            padding: 36px 32px 28px;
-            width: 320px;
-            text-align: center;
-            box-shadow: 0 12px 48px rgba(0,0,0,0.12);
-        }
-        .modal-box h3 {
-            color: #111;
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 20px;
-        }
-        .modal-box input {
-            width: 100%;
-            padding: 12px 14px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: #fff;
-            color: #111;
-            font-size: 15px;
-            font-family: inherit;
-            outline: none;
-            transition: border-color 0.15s;
-        }
-        .modal-box input:focus { border-color: #999; }
-        .modal-box input::placeholder { color: #bbb; }
-        .modal-btns {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .modal-btns button {
-            flex: 1;
-            padding: 11px 0;
-            border-radius: 8px;
-            border: none;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: inherit;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-        .btn-cancel {
-            background: #f5f5f5;
-            color: #888;
-        }
-        .btn-cancel:hover { background: #eee; }
-        .btn-enter { color: #fff; }
-        .btn-enter.pour { background: #1B2A4A; }
-        .btn-enter.pour:hover { background: #0F1B33; }
-        .btn-enter.gro { background: #111; }
-        .btn-enter.gro:hover { background: #333; }
-        .error-msg {
-            color: #e53e3e;
-            font-size: 12px;
-            margin-top: 8px;
-            min-height: 18px;
-        }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <div class="card card-pour" onclick="openLogin('pour')">
+        <div class="card card-pour" onclick="location.href='pourstore-deposit/index.html'">
             <div class="card-name">포어스토어</div>
         </div>
-        <div class="card card-gro" onclick="openLogin('gro')">
+        <div class="card card-gro" onclick="location.href='grohome-deposit/index.html'">
             <div class="card-name">그로홈</div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="loginModal">
-        <div class="modal-box">
-            <h3 id="modalTitle"></h3>
-            <input type="password" id="pwInput" placeholder="비밀번호" autocomplete="off">
-            <div class="error-msg" id="errorMsg"></div>
-            <div class="modal-btns">
-                <button class="btn-cancel" onclick="closeLogin()">취소</button>
-                <button class="btn-enter" id="btnEnter" onclick="tryLogin()">입장</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        let currentTarget = null;
-        const config = {
-            pour: { name: '포어스토어', hash: '38f0df7a5f3f36e7ba711fa66d6e5ee926c0d98c41933282ecb74958549c3d7b', url: 'pourstore-deposit/index.html', btnClass: 'pour' },
-            gro: { name: '그로홈', hash: '2824da6fc97d8426d47559f1cf0aa7394c88450aacd44d8c634691874efcf09c', url: 'grohome-deposit/index.html', btnClass: 'gro' }
-        };
-
-        async function sha256(text) {
-            const data = new TextEncoder().encode(text);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        function openLogin(target) {
-            currentTarget = target;
-            const c = config[target];
-            document.getElementById('modalTitle').textContent = c.name;
-            document.getElementById('pwInput').value = '';
-            document.getElementById('errorMsg').textContent = '';
-            document.getElementById('btnEnter').className = 'btn-enter ' + c.btnClass;
-            document.getElementById('loginModal').classList.add('active');
-            setTimeout(() => document.getElementById('pwInput').focus(), 100);
-        }
-
-        function closeLogin() {
-            document.getElementById('loginModal').classList.remove('active');
-            currentTarget = null;
-        }
-
-        async function tryLogin() {
-            const pw = document.getElementById('pwInput').value;
-            const c = config[currentTarget];
-            const inputHash = await sha256(pw);
-            if (inputHash === c.hash) {
-                sessionStorage.setItem('loggedIn_' + currentTarget, 'true');
-                window.location.href = c.url;
-            } else {
-                document.getElementById('errorMsg').textContent = '비밀번호가 일치하지 않습니다';
-                document.getElementById('pwInput').value = '';
-                document.getElementById('pwInput').focus();
-            }
-        }
-
-        document.getElementById('pwInput').addEventListener('keypress', e => { if (e.key === 'Enter') tryLogin(); });
-        document.getElementById('loginModal').addEventListener('click', function(e) { if (e.target === this) closeLogin(); });
-    </script>
 </body>
 </html>

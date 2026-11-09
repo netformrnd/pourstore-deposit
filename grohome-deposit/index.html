@@ -13,6 +13,11 @@
     <!-- Firebase SDK (CDN compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <!-- 넷폼 라운지 로그인(2026-11-09): 공용 비밀번호 대신 라운지 권한으로 입장 -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+    <script src="https://netformrnd.github.io/nf_lounge/nf-config.js"></script>
+    <script src="../lounge-gate.js?v=20261109"></script>
     <style>
         /* ============ CSS Variables (GroHome - Black Accent) ============ */
         :root{
@@ -1168,8 +1173,8 @@
         messagingSenderId: "750959145635",
         appId: "1:750959145635:web:faa4ac3334f255d2620516"
     };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    firebase.initializeApp(firebaseConfig, 'pour');   // 기본 앱 자리는 라운지 로그인(lounge-gate.js)이 씀
+    const db = firebase.app('pour').firestore();
     const DATA_DOC = db.collection('appData').doc('grohome');
     let firestoreReady = false;
     let savePending = false;     // 저장 디바운스 플래그
@@ -1520,7 +1525,7 @@
     }
 
     // ==================== INIT ====================
-    document.addEventListener('DOMContentLoaded', function() {
+    NFGate.onReady(function() {   // 라운지 권한 확인 후 시작
         // 1) localStorage에서 빠르게 로드 (오프라인/첫 표시)
         loadFromStorage();
         migrateData();
