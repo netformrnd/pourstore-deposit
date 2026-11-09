@@ -61,6 +61,16 @@
             <div class="card-name">그로홈</div>
         </div>
     </div>
-
+    <script>
+        // 브랜드별 권한: 권한 받은 카드만 보이고, 하나뿐이면 그 페이지로 바로 이동
+        NFGate.onReady(function () {
+            var b = (NFGate.me && NFGate.me.brands) || {};
+            var url = { pour: 'pourstore-deposit/index.html', gro: 'grohome-deposit/index.html' };
+            var ok = Object.keys(url).filter(function (k) { return b[k] === true; });
+            if (ok.length === 1) { location.replace(url[ok[0]]); return; }
+            if (b.pour !== true) document.querySelector('.card-pour').remove();
+            if (b.gro !== true) document.querySelector('.card-gro').remove();
+        });
+    </script>
 </body>
 </html>

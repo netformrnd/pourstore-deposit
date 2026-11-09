@@ -3,7 +3,8 @@
 
    · 이 사이트는 공용 비밀번호를 쓰지 않는다. 접속 권한은 넷폼 라운지에서 관리한다.
      - 관리자    : 라운지에서 관리자인 사람
-     - 일반 접속 : 라운지 권한 관리의 '포어·그로홈 입금관리'(pourstore) 목록에 지정된 사람
+     - 일반 접속 : 라운지 권한 관리의 '포어스토어 입금관리'(pourstore) / '그로홈 입금관리'(grohome)
+                   목록에 지정된 사람 — 브랜드별로 따로 (입장권 클레임 pour / gro)
    · 라운지(mgmtny)를 기본 앱으로 두면 같은 도메인(netformrnd.github.io)의 라운지 로그인을 그대로 쓴다.
    · 서버 함수(appToken)가 라운지 계정·권한을 확인한 뒤 pour-store 입장권을 발급한다.
      권한이 없으면 입장권이 나오지 않으므로 화면뿐 아니라 데이터(Firestore 규칙)도 막힌다.
@@ -19,7 +20,8 @@
   var REGION = 'asia-northeast3';
   var APP_ID = 'pour-store';
   var DATA_APP = 'pour';
-  var TITLE = '포어·그로홈 입금관리';
+  var BRAND_TITLE = { pour: '포어스토어 입금관리', gro: '그로홈 입금관리' };
+  var TITLE = BRAND_TITLE[document.documentElement.getAttribute('data-nf-brand')] || '포어스토어·그로홈 입금관리';
 
   var root = document.documentElement;
   root.classList.add('nf-gate-wait');
@@ -101,6 +103,11 @@
         return false;
       }
 
+      // 브랜드별 권한: 페이지가 <html data-nf-brand="pour|gro"> 이면 그 브랜드 권한이 있어야 입장
+      var brands = (res.data && res.data.brands) || {};
+      var need = root.getAttribute('data-nf-brand');
+      if (need && brands[need] !== true) { gate('denied'); return false; }
+
       if (!checkOnly) {
         await domReady;   // 페이지가 'pour' 앱을 만든 뒤
         var dataAuth = firebase.auth(firebase.app(DATA_APP));
@@ -108,7 +115,7 @@
         await dataAuth.setPersistence(firebase.auth.Auth.Persistence.NONE);
         await dataAuth.signInWithCustomToken(res.data.token);
       }
-      window.NFGate.me = { uid: res.data.uid, name: res.data.name, admin: !!res.data.admin };
+      window.NFGate.me = { uid: res.data.uid, name: res.data.name, admin: !!res.data.admin, brands: brands };
       await domReady;
       root.classList.remove('nf-gate-wait');
       return true;
