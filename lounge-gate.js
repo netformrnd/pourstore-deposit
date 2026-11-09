@@ -45,7 +45,15 @@
     });
   }
 
+  /* 입장 실패 시 이 기기에 남아 있을 수 있는 pour-store 세션을 지운다(권한 회수 즉시 반영) */
+  function dropDataSession() {
+    domReady.then(function () {
+      try { firebase.auth(firebase.app(DATA_APP)).signOut().catch(function () {}); } catch (e) {}
+    });
+  }
+
   function gate(reason, detail) {
+    dropDataSession();
     var old = document.getElementById('nfLoungeGate');
     if (old) old.remove();
     var wrap = document.createElement('div');
@@ -95,7 +103,10 @@
 
       if (!checkOnly) {
         await domReady;   // 페이지가 'pour' 앱을 만든 뒤
-        await firebase.auth(firebase.app(DATA_APP)).signInWithCustomToken(res.data.token);
+        var dataAuth = firebase.auth(firebase.app(DATA_APP));
+        // 입장권 세션은 메모리에만(브라우저에 저장 안 함) — 페이지를 열 때마다 라운지 권한을 다시 확인
+        await dataAuth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+        await dataAuth.signInWithCustomToken(res.data.token);
       }
       window.NFGate.me = { uid: res.data.uid, name: res.data.name, admin: !!res.data.admin };
       await domReady;
