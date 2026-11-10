@@ -7849,6 +7849,14 @@
             supplied: { bizNo: r.p.bizNo, name: r.p.name, ceo: r.p.repName, email: r.p.email, address: r.p.address || '', bizType: r.p.bizType || '', bizItem: r.p.bizItem || '' } }));
         try {
             const res = (await boltaFns()({ op: 'issue', source: 'grohome', items })).data;
+            if (!res.live) {
+                // 테스트 키 — 실제 입금 자료는 바꾸지 않는다(발행완료·저장 없음). 받는 메일도 서버가 우리 회사 메일로 바꿈
+                const rs = res.results || [], okT = rs.filter(x => x.ok).length, bad = rs.filter(x => !x.ok);
+                closeModal('boltaIssueModal');
+                showToast(`테스트 발행: ${okT}건 볼타 접수 (국세청에 가지 않음 · 입금 자료는 그대로)` + (bad.length ? ` · 실패 ${bad.length}건: ${bad.slice(0, 2).map(x => x.error).join(' / ')}` : ''), bad.length ? 'warning' : 'success');
+                console.log('[볼타 테스트 발행]', rs);
+                return;
+            }
             const now = new Date().toISOString(), by = (NFGate.me && NFGate.me.name) || '';
             let okN = 0; const errs = [];
             (res.results || []).forEach(x => {
@@ -7870,6 +7878,7 @@
         if (!isLoungeAdmin() || !refIds.length) return;
         try {
             const res = (await boltaFns()({ op: 'status', source: 'grohome', refIds })).data;
+            if (!res.live) return;   // 테스트 키 결과로는 실제 입금 자료를 바꾸지 않는다
             let done = 0, changed = false;
             (res.results || []).forEach(x => {
                 const d = deposits.find(r => String(r.id) === x.refId); if (!d || !d.bolta) return;
