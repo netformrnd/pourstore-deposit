@@ -449,7 +449,7 @@
 
             <!-- 검색 + 필터 -->
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;justify-content:flex-end">
-                <button id="boltaBulkBtn" class="btn btn-primary btn-sm" style="display:none;margin-right:auto" onclick="openBoltaIssue()">발행요청 건 승인하고 발행</button>
+                <button id="boltaBulkBtn" class="btn btn-primary btn-sm" style="display:none;margin-right:auto;flex-shrink:0" onclick="openBoltaIssue()">발행</button>
                 <select id="taxMonthFilter" class="filter-select" onchange="taxMonthFilter=this.value;renderTaxInvoiceList()" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">
                     <option value="all">전체 월</option>
                 </select>
@@ -1100,11 +1100,11 @@
     </div>
 
     <!-- Issue Date Modal -->
-    <!-- 2026-11-10 승인하고 발행 (볼타) — 라운지 관리자만 -->
+    <!-- 2026-11-10 승인하고 발행 — 라운지 관리자만 -->
     <div class="modal-overlay" id="boltaIssueModal">
         <div class="modal" style="max-width:980px;width:96vw">
             <button class="modal-close" onclick="closeModal('boltaIssueModal')">✕</button>
-            <h2 style="font-size:17px">승인하고 발행 — 발행될 세금계산서 확인</h2>
+            <h2 style="font-size:17px">발행할 세금계산서 확인</h2>
             <p class="text-sm" style="color:var(--text-sub);margin:4px 0 10px">공급자: 주식회사 넷폼(403-81-84528) · 작성일자 = 입금일(선발행은 발행일자) · 금액 = 입금액(부가세 포함) · 거래처 메일로 세금계산서가 갑니다. 발행 후에는 지울 수 없고 수정세금계산서로만 바로잡을 수 있습니다.</p>
             <div style="max-height:56vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)">
                 <table style="width:100%;font-size:12px">
@@ -5927,7 +5927,7 @@
             const bizNo = document.getElementById('pmBizNo').value.trim();
             const email = document.getElementById('pmEmail').value.trim();
             const repName = document.getElementById('pmRepName').value.trim();
-            // ★ 2026-11-10 세금계산서 필수 정보(볼타 발행 기준) — 비어 있거나 형식이 틀리면 저장하지 않음
+            // ★ 2026-11-10 세금계산서 필수 정보(발행 발행 기준) — 비어 있거나 형식이 틀리면 저장하지 않음
             const _taxProblems = taxPartnerProblems({ bizNo, repName, email });
             if (_taxProblems.length) { showToast('세금계산서 발행에 꼭 필요한 정보를 채워 주세요: ' + _taxProblems.join(', '), 'error'); return; }
             let warnings = [];
@@ -7753,7 +7753,7 @@
     }
 
 
-    // ==================== 2026-11-10 승인하고 발행 (볼타) ====================
+    // ==================== 2026-11-10 승인하고 발행 ====================
     // · 버튼은 넷폼 라운지 관리자에게만 보인다(NFGate.me.admin). 서버 함수 boltaIssue 도 관리자인지 다시 확인한다
     // · 공급자(주식회사 넷폼)는 서버가 고정. 같은 입금 건은 서버가 두 번 발행하지 않는다(건 번호 = 입금 id)
     // · 결과는 d.bolta = { status: accepted|issued|failed|unknown, issuanceKey, ntsId, at, by, error } 로 저장
@@ -7783,13 +7783,13 @@
     /** 세금계산서 탭 행 앞쪽 칸 */
     function boltaRowHtml(d, p, isComplete) {
         const b = d.bolta;
-        if (b && BOLTA_BUSY.includes(b.status)) return `<span class="badge-pill" style="background:#fdf1dc;color:#9a5b00;font-weight:700;margin-right:4px" title="볼타 접수 ${boltaEsc(b.at || '')}">발행 처리중</span>`;
-        if (isComplete) return (b && b.ntsId) ? `<span class="text-sm" style="margin-right:4px;color:var(--text-sub)" title="국세청 승인번호 ${boltaEsc(b.ntsId)}">볼타✓</span>` : '';
+        if (b && BOLTA_BUSY.includes(b.status)) return `<span class="badge-pill" style="background:#fdf1dc;color:#9a5b00;font-weight:700;margin-right:4px" title="발행 접수 ${boltaEsc(b.at || '')}">발행 처리중</span>`;
+        if (isComplete) return (b && b.ntsId) ? `<span class="text-sm" style="margin-right:4px;color:var(--text-sub)" title="국세청 승인번호 ${boltaEsc(b.ntsId)}">전자발행✓</span>` : '';
         const pr = taxPartnerProblems(p);
         const fail = (b && b.status === 'failed') ? `<span class="text-sm" style="color:#c2413a;margin-right:4px" title="${boltaEsc(b.error || '')}">발행 실패</span>` : '';
         if (pr.length) return fail + `<span class="badge-pill" style="background:#fdeceb;color:#c2413a;font-weight:700;margin-right:4px" title="${boltaEsc(pr.join(', '))}">거래처 정보 필요</span>`;
         if (!isLoungeAdmin()) return fail;
-        return fail + `<button class="btn-xs btn-primary" onclick="openBoltaIssue([${d.id}])" style="padding:2px 8px;margin-right:4px">승인하고 발행</button>`;
+        return fail + `<button class="btn-xs btn-primary" onclick="openBoltaIssue([${d.id}])" style="padding:2px 8px;margin-right:4px">발행</button>`;
     }
 
     let boltaPollAt = 0;
@@ -7809,7 +7809,7 @@
         let list = ids ? deposits.filter(d => ids.includes(d.id)) : deposits.filter(d => d.actionRequired === '세금계산서 발행필요');
         if (!ids && typeof taxMonthFilter !== 'undefined' && taxMonthFilter !== 'all') list = list.filter(d => (d.requestDate || d.issueDate || d.date || '').startsWith(taxMonthFilter));
         list = list.filter(d => d.actionRequired === '세금계산서 발행필요' && !(d.bolta && (BOLTA_BUSY.includes(d.bolta.status) || BOLTA_DONE.includes(d.bolta.status))));
-        if (!list.length) { showToast('승인하고 발행할 발행요청 건이 없습니다.', 'info'); return; }
+        if (!list.length) { showToast('발행할 발행요청 건이 없습니다.', 'info'); return; }
         boltaRows = list.map(d => {
             const p = d.partnerId ? getPartnerById(d.partnerId) : null;
             const pr = taxPartnerProblems(p);
@@ -7853,8 +7853,8 @@
                 // 테스트 키 — 실제 입금 자료는 바꾸지 않는다(발행완료·저장 없음). 받는 메일도 서버가 우리 회사 메일로 바꿈
                 const rs = res.results || [], okT = rs.filter(x => x.ok).length, bad = rs.filter(x => !x.ok);
                 closeModal('boltaIssueModal');
-                showToast(`테스트 발행: ${okT}건 볼타 접수 (국세청에 가지 않음 · 입금 자료는 그대로)` + (bad.length ? ` · 실패 ${bad.length}건: ${bad.slice(0, 2).map(x => x.error).join(' / ')}` : ''), bad.length ? 'warning' : 'success');
-                console.log('[볼타 테스트 발행]', rs);
+                showToast(`테스트 발행: ${okT}건 접수 (국세청에 가지 않음 · 입금 자료는 그대로)` + (bad.length ? ` · 실패 ${bad.length}건: ${bad.slice(0, 2).map(x => x.error).join(' / ')}` : ''), bad.length ? 'warning' : 'success');
+                console.log('[테스트 발행]', rs);
                 return;
             }
             const now = new Date().toISOString(), by = (NFGate.me && NFGate.me.name) || '';
@@ -7867,7 +7867,7 @@
             saveToStorage(false, '계산서');
             closeModal('boltaIssueModal');
             renderAll(); renderTaxInvoiceList();
-            showToast(`${okN}건 볼타 접수${res.live ? '' : ' (테스트 — 국세청에는 가지 않음)'}` + (errs.length ? ` · 실패 ${errs.length}건: ${errs.slice(0, 2).join(' / ')}` : '') + ' · 승인되면 자동으로 발행완료로 바뀝니다.', errs.length ? 'warning' : 'success');
+            showToast(`${okN}건 발행 접수${res.live ? '' : ' (테스트 — 국세청에는 가지 않음)'}` + (errs.length ? ` · 실패 ${errs.length}건: ${errs.slice(0, 2).join(' / ')}` : '') + ' · 승인되면 자동으로 발행완료로 바뀝니다.', errs.length ? 'warning' : 'success');
             setTimeout(() => refreshBoltaStatus(items.map(i => i.refId)), 20000);
         } catch (e) {
             showToast('발행 요청을 보내지 못했습니다: ' + ((e && e.message) || e), 'error');
@@ -7887,7 +7887,7 @@
                     d.issueDate = String(x.issuedAt || '').slice(0, 10) || new Date().toISOString().split('T')[0];
                     d.status = '완료'; d.actionRequired = '세금계산서 발행완료';
                     done++; changed = true;
-                } else if (x.status === 'failed' && d.bolta.status !== 'failed') { d.bolta.status = 'failed'; d.bolta.error = x.error || '볼타 발행 실패'; changed = true; }
+                } else if (x.status === 'failed' && d.bolta.status !== 'failed') { d.bolta.status = 'failed'; d.bolta.error = x.error || '발행 실패'; changed = true; }
             });
             if (changed) { saveToStorage(false, '계산서'); renderAll(); renderTaxInvoiceList(); }
             if (done) showToast(`${done}건이 국세청 승인되어 발행완료로 바뀌었습니다.`, 'success');
