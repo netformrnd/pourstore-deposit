@@ -1,76 +1,18 @@
 <!DOCTYPE html>
-<html lang="ko" data-nf-gate="check">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>매출관리 시스템</title>
-    <!-- 넷폼 라운지 로그인(2026-11-09): 공용 비밀번호 대신 라운지 권한으로 입장 -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
-    <script src="https://netformrnd.github.io/nf_lounge/nf-config.js"></script>
-    <script src="lounge-gate.js?v=20261109"></script>
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f5f5f5;
-        }
-        .login-container {
-            display: flex;
-            gap: 1px;
-            background: #e0e0e0;
-            border-radius: 14px;
-            overflow: hidden;
-            box-shadow: 0 8px 40px rgba(0,0,0,0.08);
-        }
-        .card {
-            width: 260px;
-            padding: 56px 40px;
-            background: #fff;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-align: center;
-            position: relative;
-        }
-        .card:hover { background: #fafafa; }
-        .card:active { background: #f5f5f5; }
-        .card-name {
-            font-size: 20px;
-            font-weight: 700;
-            color: #111;
-            letter-spacing: -0.3px;
-        }
-        .card-pour:hover .card-name { color: #1B2A4A; }
-        .card-gro:hover .card-name { color: #111; }
-
-    </style>
+    <title>그로홈 입금관리</title>
+    <!-- 2026-11-10: 포어스토어는 다른 곳으로 옮겨 이 사이트에서는 그로홈만 사용 → 첫 주소로 오면 그로홈으로 바로 이동.
+         권한 확인(라운지 로그인·그로홈 권한)은 그로홈 페이지가 한다.
+         옛 포어스토어 페이지(pourstore-deposit/)와 데이터는 기록으로 남겨 둠(권한자만 열람). -->
+    <meta http-equiv="refresh" content="0; url=grohome-deposit/index.html">
+    <script>location.replace('grohome-deposit/index.html' + location.hash);</script>
 </head>
 <body>
-    <div class="login-container">
-        <div class="card card-pour" onclick="location.href='pourstore-deposit/index.html'">
-            <div class="card-name">포어스토어</div>
-        </div>
-        <div class="card card-gro" onclick="location.href='grohome-deposit/index.html'">
-            <div class="card-name">그로홈</div>
-        </div>
-    </div>
-    <script>
-        // 브랜드별 권한: 권한 받은 카드만 보이고, 하나뿐이면 그 페이지로 바로 이동
-        NFGate.onReady(function () {
-            var b = (NFGate.me && NFGate.me.brands) || {};
-            var url = { pour: 'pourstore-deposit/index.html', gro: 'grohome-deposit/index.html' };
-            var ok = Object.keys(url).filter(function (k) { return b[k] === true; });
-            if (ok.length === 1) { location.replace(url[ok[0]]); return; }
-            if (b.pour !== true) document.querySelector('.card-pour').remove();
-            if (b.gro !== true) document.querySelector('.card-gro').remove();
-        });
-    </script>
+    <p style="font-family:sans-serif;padding:40px;text-align:center;">
+        <a href="grohome-deposit/index.html">그로홈 입금관리로 이동</a>
+    </p>
 </body>
 </html>
