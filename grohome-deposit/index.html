@@ -1623,6 +1623,7 @@
             console.log('☁️ 원격 데이터 수신 → 화면 업데이트');
             const data = docSnap.data();
             applyFirestoreData(data);
+            setTimeout(() => importBoltaInbox(data.boltaInbox), 0);   // 볼타 받은함 → 입금내역 (2026-11-12)
         }, err => {
             console.error('☁️ 실시간 동기화 오류:', err);
         });
@@ -2042,6 +2043,71 @@
         }
         else if (dupes > 0) showToast(`모두 중복 (${dupes}건)`, 'warning');
         else showToast('입금 데이터가 없습니다. 파일 형식을 확인해주세요.', 'error');
+    }
+
+    // ==================== 볼타 받은함 → 입금내역 (2026-11-12, 문영 「그로홈 입금 API 자동 연결」) ====================
+    // 서버(라운지 정기 수집 05·07·09·11·13·15·17시)가 appData/grohome.boltaInbox.b{볼타id} 에 그로홈 계좌 입금만 넣는다
+    //   (넷폼 자금대체·결산 이자·「내수/」 지원금·11-12 이전 입금은 서버가 이미 뺌)
+    // 페이지는 열릴 때·실시간 동기화 때 아직 안 가져온 건을 엑셀 업로드와 같은 처리(자동분류·거래처 추천·선발행 자동매칭)로 넣는다
+    // 중복: 같은 boltaId 가 deposits·consumedDeposits 에 있으면 건너뜀 + 예전처럼 「날짜+이름+금액」도 봄(엑셀로 이미 올린 날)
+    // 받은함 칸 지우기: 서버에서 받은 목록에 그 boltaId 가 이미 있을 때만(다음 동기화 때) — 저장 실패로 입금이 사라지지 않게
+    // removed:true(볼타에서 지워진 거래): 입금은 지우지 않고 boltaRemoved 표시·비고만(발행 상태 그대로) → 사람이 확인
+    let boltaImporting = false;
+    function importBoltaInbox(inbox) {
+        if (!inbox || typeof inbox !== 'object' || boltaImporting || !firestoreReady) return;
+        const keys = Object.keys(inbox).filter(k => k.startsWith('b') && inbox[k] && inbox[k].boltaId);
+        if (!keys.length) return;
+        boltaImporting = true;
+        try {
+            const hasBolta = id => deposits.some(d => d.boltaId === id) || consumedDeposits.some(c => c.boltaId === id);
+            const toDelete = [], newly = [];
+            let added = 0, linked = 0, removedMarked = 0, autoCatCount = 0;
+            keys.forEach(k => {
+                const b = inbox[k]; const id = String(b.boltaId);
+                if (b.removed) {
+                    const d = deposits.find(x => x.boltaId === id);
+                    if (d && !d.boltaRemoved) { d.boltaRemoved = true; d.note = ((d.note || '') + ' [볼타에서 지워진 거래 — 확인 필요]').trim(); removedMarked++; }
+                    else toDelete.push(k);                                          // 표시가 저장된 다음 번(또는 목록에 없음)에 정리
+                    return;
+                }
+                if (hasBolta(id)) { toDelete.push(k); return; }                 // 이미 가져감(서버 목록에 있음) → 받은함 칸 정리
+                const amount = Number(b.amount) || 0, name = String(b.depositorName || '').trim(), fDate = formatDate(b.date);
+                if (!(amount > 0) || !name || !fDate) return;
+                const same = deposits.find(r => r.date === fDate && r.depositorName === name && (r.amount === amount || r.originalAmount === amount) && !r.boltaId);
+                if (same) { same.boltaId = id; linked++; return; }             // 엑셀로 이미 올린 건 → boltaId 만 이어 줌
+                const cons = consumedDeposits.find(r => r.date === fDate && r.depositorName === name && r.amount === amount && !r.boltaId);
+                if (cons) { cons.boltaId = id; linked++; return; }
+                const dep = { id: nextDepositId++, date: fDate, depositorName: name, amount: amount, memo: '', category: '', orderNo: '',
+                    partnerId: null, attachments: {}, matchedRequestId: null, note: '', status: '확인중', channel: '', paymentMethod: '',
+                    cardCompany: '', actionRequired: '', autoMatched: false, matchConfirmed: false, suggestedPartnerId: null, suggestedScore: null,
+                    autoCategory: null, boltaId: id, boltaTime: b.time || '', createdAt: new Date().toISOString() };
+                const matchResult = findBestPartnerMatch(name);
+                if (matchResult) { dep.suggestedPartnerId = matchResult.partner.id; dep.suggestedScore = matchResult.score; }
+                dep.autoCategory = getAutoCategory(name);
+                if (dep.autoCategory === 'online') { dep.category = '온라인'; dep.channel = '자사몰'; dep.actionRequired = '처리완료(자사몰)'; dep.status = '완료'; autoCatCount++; }
+                else if (dep.autoCategory === 'card') { dep.category = '온라인'; dep.channel = ''; dep.actionRequired = '처리완료(카드사)'; dep.status = '완료'; autoCatCount++; }
+                deposits.push(dep); newly.push(dep); added++;
+            });
+            const autoMatched = newly.length ? autoMatchPreIssueDeposits(newly.filter(d => !d.autoCategory)) : 0;
+            if (added || linked || removedMarked) {
+                saveToStorage(added > 0, added > 0 ? '입금내역' : null);
+                renderAll();
+                let msg = `볼타 입금 ${added}건 자동 반영`;
+                if (autoCatCount) msg += ` (온라인/카드사 ${autoCatCount}건 자동분류)`;
+                if (autoMatched) msg += ` (선발행 ${autoMatched}건 입금매칭)`;
+                if (linked) msg += ` · 이미 있던 ${linked}건 연결`;
+                if (removedMarked) msg += ` · 볼타에서 지워진 ${removedMarked}건 표시`;
+                showToast(msg, removedMarked ? 'warning' : 'success');
+            }
+            if (toDelete.length) {
+                const upd = {}; toDelete.forEach(k => { upd['boltaInbox.' + k] = firebase.firestore.FieldValue.delete(); });
+                DATA_DOC.update(upd).catch(err => console.error('☁️ 볼타 받은함 정리 실패:', err));
+            }
+        } catch (e) {
+            console.error('볼타 받은함 반영 오류:', e);
+        } finally {
+            boltaImporting = false;
+        }
     }
 
     function formatDate(date) {
@@ -2957,7 +3023,7 @@
 
                     if (applyAmount >= bd.amount) {
                         // 잔여금 전액 소진 → 완료 처리 (목록 유지)
-                        consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount || bd.amount, consumedAmount: bd.amount });
+                        consumedDeposits.push({ date: bd.date, depositorName: bd.depositorName, amount: bd.originalAmount || bd.amount, consumedAmount: bd.amount, boltaId: bd.boltaId || null });
                         bd.status = '완료'; bd.preIssueConsumed = true;
                         bd.actionRequired = '처리완료(선발행매칭)';
                     } else {
@@ -3187,7 +3253,7 @@
                 d.actionRequired = '처리완료(선발행매칭)';
             }
             // 중복업로드 방지용 기록 — 완료 처리 (목록 유지)
-            consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
+            consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount, boltaId: d.boltaId || null });
             d.status = '완료'; d.preIssueConsumed = true;
             d.actionRequired = '처리완료(선발행매칭)';
         }
@@ -3259,7 +3325,7 @@
                 pre.date = exactMatch.date; // 전액 완료
                 pre.status = '완료';
                 usedIds.add(exactMatch.id);
-                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount });
+                consumedDeposits.push({ date: exactMatch.date, depositorName: exactMatch.depositorName, amount: exactMatch.originalAmount || exactMatch.amount, consumedAmount: exactMatch.amount, boltaId: exactMatch.boltaId || null });
                 exactMatch.status = '완료'; exactMatch.preIssueConsumed = true;
                 exactMatch.actionRequired = '처리완료(선발행매칭)';
                 matched++;
@@ -3276,7 +3342,7 @@
                     pre.partialPayments.push({ date: nd.date, amount: nd.amount, depositorName: nd.depositorName });
                     runningRemain -= nd.amount;
                     usedIds.add(nd.id);
-                    consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount });
+                    consumedDeposits.push({ date: nd.date, depositorName: nd.depositorName, amount: nd.originalAmount || nd.amount, consumedAmount: nd.amount, boltaId: nd.boltaId || null });
                     nd.status = '완료'; nd.preIssueConsumed = true;
                     nd.actionRequired = '처리완료(선발행매칭)';
                     partialMatched = true;
@@ -4534,7 +4600,7 @@
                         d.amount = remainingAmount;
                         d.memo = (d.memo || '') + ` [선발행 매칭 ${formatNumber(totalMatched)}원 차감]`;
                     } else {
-                        consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount });
+                        consumedDeposits.push({ date: d.date, depositorName: d.depositorName, amount: d.originalAmount || d.amount, consumedAmount: d.amount, boltaId: d.boltaId || null });
                         d.status = '완료'; d.preIssueConsumed = true;
                         d.actionRequired = '처리완료(선발행매칭)';
                     }
